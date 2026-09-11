@@ -1,11 +1,14 @@
 package dev.omatube.app.ui.library
 
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import dev.omatube.app.model.Category
 import dev.omatube.app.model.Channel
 import dev.omatube.app.model.HistoryEntry
@@ -15,6 +18,7 @@ import dev.omatube.app.model.Video
 import dev.omatube.app.ui.LibraryScreen
 import dev.omatube.app.ui.theme.OmaTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -58,6 +62,7 @@ class LibraryScreenTest {
         selectedCategoryId: Long = ALL_CATEGORY_ID,
         onRoute: (String) -> Unit = {},
         onCategory: (Long) -> Unit = {},
+        onOpenVideo: (Video) -> Unit = {},
         onAddWatchNext: (String) -> Unit = {},
         onRemoveWatchNext: (String) -> Unit = {},
         onMoveWatchNext: (String, Int) -> Unit = { _, _ -> },
@@ -81,7 +86,7 @@ class LibraryScreenTest {
                     onMoveCategory = { _, _ -> },
                     onRefresh = {},
                     onLoadMore = {},
-                    onOpenVideo = {},
+                    onOpenVideo = onOpenVideo,
                     onAddWatchNext = onAddWatchNext,
                     onRemoveWatchNext = onRemoveWatchNext,
                     onMoveWatchNext = onMoveWatchNext,
@@ -185,5 +190,116 @@ class LibraryScreenTest {
         rule.onNodeWithTag("watchNextRemove_v1").performClick()
         rule.waitForIdle()
         assertEquals(listOf("v1"), removed)
+    }
+
+    // ---- Tap-to-open regression coverage ---------------------------------
+    //
+    // These use real pointer injection (performTouchInput click), not the
+    // semantic performClick action. The original bug chained clickable with a
+    // later pointerInput long-press detector that consumed the down/up events,
+    // so the semantic click action still worked while a real tap did nothing.
+
+    @Test
+    fun tappingFullFeedCardOpensVideo() {
+        val opened = mutableListOf<Video>()
+        setContent("feed", onOpenVideo = { opened.add(it) })
+        rule.onNodeWithTag("feedVideo_v1").performTouchInput { click() }
+        rule.waitForIdle()
+        assertEquals(listOf(first), opened)
+    }
+
+    @Test
+    fun tappingSimpleFeedRowOpensVideo() {
+        val opened = mutableListOf<Video>()
+        setContent("feed", simpleUi = true, onOpenVideo = { opened.add(it) })
+        rule.onNodeWithTag("feedVideo_v1").performTouchInput { click() }
+        rule.waitForIdle()
+        assertEquals(listOf(first), opened)
+    }
+
+    @Test
+    fun tappingFullHistoryCardOpensVideo() {
+        val opened = mutableListOf<Video>()
+        setContent("history", onOpenVideo = { opened.add(it) })
+        rule.onNodeWithTag("historyVideo_v1").performTouchInput { click() }
+        rule.waitForIdle()
+        assertEquals(listOf(first), opened)
+    }
+
+    @Test
+    fun tappingSimpleHistoryRowOpensVideo() {
+        val opened = mutableListOf<Video>()
+        setContent("history", simpleUi = true, onOpenVideo = { opened.add(it) })
+        rule.onNodeWithTag("historyVideo_v1").performTouchInput { click() }
+        rule.waitForIdle()
+        assertEquals(listOf(first), opened)
+    }
+
+    @Test
+    fun tappingWatchNextCardOpensVideo() {
+        val opened = mutableListOf<Video>()
+        setContent("watchnext", onOpenVideo = { opened.add(it) })
+        rule.onNodeWithTag("watchNextVideo_v1").performTouchInput { click() }
+        rule.waitForIdle()
+        assertEquals(listOf(first), opened)
+    }
+
+    @Test
+    fun watchNextQueueControlsDoNotOpenVideo() {
+        val opened = mutableListOf<Video>()
+        setContent("watchnext", onOpenVideo = { opened.add(it) })
+        rule.onNodeWithTag("watchNextUp_v1").performTouchInput { click() }
+        rule.onNodeWithTag("watchNextRemove_v1").performTouchInput { click() }
+        rule.waitForIdle()
+        assertTrue("queue controls must not launch the player", opened.isEmpty())
+    }
+
+    @Test
+    fun longPressStillAddsWithoutOpening() {
+        val opened = mutableListOf<Video>()
+        val added = mutableListOf<String>()
+        setContent(
+            "feed",
+            onOpenVideo = { opened.add(it) },
+            onAddWatchNext = { added.add(it) },
+        )
+        rule.onNodeWithTag("feedVideo_v1").performTouchInput { longClick() }
+        rule.waitForIdle()
+        assertTrue("long-press must not open the player", opened.isEmpty())
+        assertEquals(listOf("v1"), added)
+    }
+
+    @Test
+    fun longPressSimpleFeedStillAddsWithoutOpening() {
+        val opened = mutableListOf<Video>()
+        val added = mutableListOf<String>()
+        setContent(
+            "feed",
+            simpleUi = true,
+            onOpenVideo = { opened.add(it) },
+            onAddWatchNext = { added.add(it) },
+        )
+        rule.onNodeWithTag("feedVideo_v1").performTouchInput { longClick() }
+        rule.waitForIdle()
+        assertTrue("long-press must not open the player", opened.isEmpty())
+        assertEquals(listOf("v1"), added)
+    }
+
+    @Test
+    fun dragCancelsFeedClickThenNextTapOpens() {
+        val opened = mutableListOf<Video>()
+        setContent("feed", onOpenVideo = { opened.add(it) })
+        rule.onNodeWithTag("feedVideo_v1").performTouchInput { swipeUp() }
+        rule.waitForIdle()
+        assertTrue("a drag must not open the player", opened.isEmpty())
+        rule.onNodeWithTag("feedVideo_v1").performTouchInput { click() }
+        rule.waitForIdle()
+        assertEquals(listOf(first), opened)
+    }
+
+    @Test
+    fun feedCardKeepsAccessibleDescription() {
+        setContent("feed")
+        rule.onNodeWithContentDescription("Video v1 First").assertExists()
     }
 }

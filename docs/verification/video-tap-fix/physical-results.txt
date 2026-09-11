@@ -1,0 +1,14 @@
+PASS full-feed-tap: tap (540,899) bounds=(69, 532, 1012, 1266) -> player AUTO0000001 -> back=ok
+PASS simple-feed-tap: tap (540,669) bounds=(74, 566, 1007, 772) -> player AUTO0000001 -> back=ok
+PASS full-history-tap: tap (540,836) bounds=(69, 469, 1012, 1203) -> player AUTO0000001 -> back=ok
+PASS simple-history-tap: tap (540,591) bounds=(74, 488, 1007, 694) -> player AUTO0000001 -> back=ok
+PASS full-watchnext-tap: tap (540,812) bounds=(69, 469, 1012, 1155) -> player AUTO0000002 -> back=ok
+PASS simple-watchnext-tap: tap (540,831) bounds=(90, 500, 991, 1163) -> player AUTO0000002 -> back=ok
+PASS full-watchnext-ctrl-move-AUTO0000002: tap Move down AUTO0000002 (244,1194) no_player=True absent_ok=True move_ok=True y=812->1635
+PASS full-watchnext-ctrl-move-AUTO0000004: tap Move up AUTO0000004 (139,2017) no_player=True absent_ok=True move_ok=True y=1635->812
+PASS full-watchnext-ctrl-remove-AUTO0000002: tap Remove from Watch Next AUTO0000002 (406,1194) no_player=True absent_ok=True move_ok=True y=812->None
+PASS full-feed-longpress: long press no_player=True added_to_watchnext=True
+PASS simple-feed-longpress: long press no_player=True added_to_watchnext=True
+PASS full-feed-scroll: scroll no_player=True feed_present=True
+PASS simple-feed-scroll: scroll no_player=True feed_present=True
+TOTAL 13/13

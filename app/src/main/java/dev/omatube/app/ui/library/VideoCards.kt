@@ -2,8 +2,7 @@ package dev.omatube.app.ui.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -22,7 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -105,14 +103,12 @@ fun FullVideoCard(
                         this.contentDescription = contentDescription
                         role = Role.Button
                     }
-                    .clickable(
+                    .combinedClickable(
                         interactionSource = interaction,
                         indication = null,
+                        onLongClick = onLongPress,
                         onClick = onOpen,
-                    )
-                    .pointerInput(video.id, onLongPress) {
-                        detectTapGestures(onLongPress = { onLongPress?.invoke() })
-                    },
+                    ),
             ) {
                 OmaThumbnail(
                     video = video,
@@ -227,14 +223,12 @@ fun SimpleVideoRow(
                     this.contentDescription = contentDescription
                     role = Role.Button
                 }
-                .clickable(
+                .combinedClickable(
                     interactionSource = interaction,
                     indication = null,
+                    onLongClick = onLongPress,
                     onClick = onOpen,
                 )
-                .pointerInput(video.id, onLongPress) {
-                    detectTapGestures(onLongPress = { onLongPress?.invoke() })
-                }
                 .padding(horizontal = 12.dp, vertical = 17.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
