@@ -1,0 +1,62 @@
+#!/usr/bin/env sh
+# Run the OmaTube Android JVM unit tests.
+#
+# Tests use in-memory Room, isolated settings, seeded fixtures and a fake
+# extractor/player. They must not require network access or remote images.
+#
+# Uses JAVA_HOME/ANDROID_HOME from the environment when set, otherwise falls
+# back to the private toolchain installed by bin/bootstrap-android under
+# .tooling/. Never installs anything system-wide.
+
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+TOOLING="$ROOT/.tooling"
+
+if [ -z "${JAVA_HOME:-}" ] && [ -x "$TOOLING/jdk/bin/java" ]; then
+    JAVA_HOME="$TOOLING/jdk"
+fi
+if [ -z "${ANDROID_HOME:-}" ] && [ -d "$TOOLING/android-sdk/platforms" ]; then
+    ANDROID_HOME="$TOOLING/android-sdk"
+fi
+
+if [ -z "${JAVA_HOME:-}" ]; then
+    echo "bin/test: JAVA_HOME is not set and .tooling/jdk is missing. Run bin/bootstrap-android first." >&2
+    exit 1
+fi
+if [ -z "${ANDROID_HOME:-}" ]; then
+    echo "bin/test: ANDROID_HOME is not set and .tooling/android-sdk is missing. Run bin/bootstrap-android first." >&2
+    exit 1
+fi
+
+export JAVA_HOME
+export ANDROID_HOME
+export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+export ANDROID_USER_HOME="${ANDROID_USER_HOME:-$TOOLING/.android}"
+export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-$TOOLING/avd}"
+export ANDROID_EMULATOR_HOME="${ANDROID_EMULATOR_HOME:-$TOOLING/.android}"
+
+# Keep Gradle and every forked JVM off the shared /tmp, which can be small or
+# full. Default TMPDIR to the repository's private .tooling/tmp and pass the
+# same directory to child JVMs through JAVA_TOOL_OPTIONS. An existing TMPDIR or
+# an existing java.io.tmpdir flag is preserved, and only the private default
+# root is created.
+if [ -z "${TMPDIR:-}" ]; then
+    TMPDIR="$TOOLING/tmp"
+    mkdir -p "$TMPDIR"
+fi
+case " ${JAVA_TOOL_OPTIONS:-} ${_JAVA_OPTIONS:-} ${JAVA_OPTS:-} ${GRADLE_OPTS:-} " in
+    *"-Djava.io.tmpdir="*) ;;
+    *)
+        if [ -n "${JAVA_TOOL_OPTIONS:-}" ]; then
+            JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS -Djava.io.tmpdir=\"$TMPDIR\""
+        else
+            JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=\"$TMPDIR\""
+        fi
+        ;;
+esac
+export TMPDIR JAVA_TOOL_OPTIONS
+
+export PATH="$JAVA_HOME/bin:$PATH"
+
+exec "$ROOT/gradlew" --console=plain :app:testDebugUnitTest "$@"

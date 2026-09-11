@@ -1,0 +1,78 @@
+device=emulator-5580 sdk=36 size=Physical size: 1080x2400 density=Physical density: 420
+measure top_cutout=DisplayCutout{insets=Rect(0, 128 statusbar_frame=128x63
+start ui=full route=feed theme=default settle=2.5
+shot=full-feed-default.png PNG image data, 1080 x 2400
+PASS text 'Feed' present
+start ui=full route=history theme=default settle=2.5
+shot=full-history-default.png PNG image data, 1080 x 2400
+PASS text 'History' present
+start ui=full route=watchnext theme=default settle=2.5
+shot=full-watchnext-default.png PNG image data, 1080 x 2400
+PASS text 'Watch Next' present
+start ui=full route=settings theme=default settle=2.5
+shot=full-settings-channels.png PNG image data, 1080 x 2400
+PASS text 'CHANNELS' present
+shot=full-settings-categories.png PNG image data, 1080 x 2400
+PASS text 'CATEGORIES' present
+shot=full-settings-feed.png PNG image data, 1080 x 2400
+PASS text 'Use key' present
+PASS Appearance tab shows Theme
+shot=full-settings-appearance.png PNG image data, 1080 x 2400
+PASS Playback tab shows SponsorBlock
+shot=full-settings-playback.png PNG image data, 1080 x 2400
+measure Config_title=151 82 63 56 239 108
+INFO first_clickable=993 82 930 19 1056 145
+start ui=full route=settings theme=default settle=2.5
+shot=full-settings-theme-open.png PNG image data, 1080 x 2400
+shot=full-settings-theme-nord.png PNG image data, 1080 x 2400
+start ui=full route=feed theme=rose-pine settle=2.5
+shot=full-feed-rose-pine.png PNG image data, 1080 x 2400
+start ui=full route=feed theme=nord settle=2.5
+shot=full-feed-nord.png PNG image data, 1080 x 2400
+start ui=full route=feed theme=default settle=2.5
+shot=full-feed-category-music.png PNG image data, 1080 x 2400
+start ui=full route=player theme=default settle=1.4
+start ui=full route=player theme=default settle=1.4
+paused player ui=full (chrome held)
+shot=full-player-chrome.png PNG image data, 1080 x 2400
+PASS player top bar BACK present
+shot=full-player-quality-open.png PNG image data, 1080 x 2400
+shot=full-player-quality-720p.png PNG image data, 1080 x 2400
+PASS quality selector opens and selects 720p
+shot=full-player-back-feed.png PNG image data, 1080 x 2400
+PASS back from player -> feed
+start ui=full route=watchnext theme=default settle=2.5
+PASS watch next starts at 2/25
+shot=full-watchnext-moved.png PNG image data, 1080 x 2400
+shot=full-watchnext-removed.png PNG image data, 1080 x 2400
+PASS watch next remove -> 1/25
+start ui=full route=history theme=default settle=2.5
+shot=full-history-back-feed.png PNG image data, 1080 x 2400
+PASS back from history -> feed
+start ui=full route=feed theme=default settle=2.5
+INFO long-pressed AUTO0000003 for Watch Next add
+shot=full-watchnext-after-add.png PNG image data, 1080 x 2400
+PASS long-press add -> 3/25
+start ui=simple route=feed theme=default settle=2.5
+shot=simple-feed-default.png PNG image data, 1080 x 2400
+start ui=simple route=history theme=default settle=2.5
+shot=simple-history-default.png PNG image data, 1080 x 2400
+start ui=simple route=watchnext theme=default settle=2.5
+shot=simple-watchnext-default.png PNG image data, 1080 x 2400
+start ui=simple route=settings theme=default settle=2.5
+shot=simple-settings-channels.png PNG image data, 1080 x 2400
+start ui=simple route=player theme=default settle=1.4
+paused player ui=simple (chrome held)
+shot=simple-player-chrome.png PNG image data, 1080 x 2400
+start ui=full route=settings theme=default settle=2.5
+shot=full-settings-simple-toggle-on.png PNG image data, 1080 x 2400
+INFO toggled Use simple UI from full Config
+shot=full-toggle-back-simple-feed.png PNG image data, 1080 x 2400
+PASS simple feed reachable after toggle+back
+start ui=full route=player theme=default settle=1.4
+shot=full-player-landscape.png PNG image data, 2400 x 1080
+shot=full-player-portrait-again.png PNG image data, 1080 x 2400
+app_pid=18404 app_logcat_lines=36
+PASS no network/extractor tokens in app logcat
+PASS no fatal exceptions in app logcat
+done results=/home/cassian/projects/android/OmaTube/docs/verification/android/results.txt

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Default cloud backup for the private database and DataStore.
+             Context.noBackupFilesDir (the encrypted API key ciphertext) is
+             never included. -->
+    </cloud-backup>
+    <device-transfer>
+        <!-- Default device-to-device transfer. -->
+    </device-transfer>
+</data-extraction-rules>

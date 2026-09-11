@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Native window theme: no action bar, custom window background. Compose
+         applies the actual OmaTube palette (default, rose-pine, nord) on top. -->
+    <style name="Theme.OmaTube" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/omatube_window_background</item>
+        <item name="android:colorBackground">@color/omatube_window_background</item>
+        <item name="android:statusBarColor">@color/omatube_window_background</item>
+        <item name="android:navigationBarColor">@color/omatube_window_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+    </style>
+</resources>

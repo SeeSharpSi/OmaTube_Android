@@ -1,0 +1,220 @@
+#!/usr/bin/env sh
+# Private, host-local Android toolchain bootstrap for OmaTube.
+#
+# Installs the official JDK and Android SDK entirely under .tooling/, creates a
+# private headless AVD, and can launch it. Nothing global is touched, no sudo
+# is used, and no user data is read. Safe to re-run.
+#
+# Usage:
+#   bin/bootstrap-android                 install/verify toolchain, print env
+#   bin/bootstrap-android --start-emulator  install/verify, then boot the AVD
+#
+# After bootstrap, source the printed exports (or re-run and eval them).
+
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+TOOLING="$ROOT/.tooling"
+JDK_DIR="$TOOLING/jdk"
+SDK_DIR="$TOOLING/android-sdk"
+USER_HOME_DIR="$TOOLING/.android"
+AVD_HOME="$TOOLING/avd"
+DOWNLOADS="$TOOLING/downloads"
+LOGS="$TOOLING/logs"
+
+JDK_ASSET="OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz"
+JDK_URL="https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/$JDK_ASSET"
+JDK_SHA256="ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94"
+
+CMDLINE_ASSET="commandlinetools-linux-16111833_latest.zip"
+CMDLINE_URL="https://dl.google.com/android/repository/$CMDLINE_ASSET"
+CMDLINE_SHA1="e025545c62a8e64c7559119566a569fb1dec5f60"
+
+PLATFORM="android-36"
+BUILD_TOOLS="36.0.0"
+SYSTEM_IMAGE="system-images;android-36;google_apis;x86_64"
+AVD_NAME="omatube_test"
+EMULATOR_PORT="5580"
+EMULATOR_SERIAL="emulator-$EMULATOR_PORT"
+
+# The pinned archives are Linux x86_64 builds (x64_linux JDK and linux
+# command-line tools), so refuse any other host instead of failing mid-install.
+case "$(uname -s)" in
+    Linux) ;;
+    *)
+        echo "bootstrap-android: only Linux x86_64 is supported; use Android Studio with a separately installed JDK 21 and Android SDK 36 on $(uname -s)." >&2
+        exit 1
+        ;;
+esac
+case "$(uname -m)" in
+    x86_64 | amd64) ;;
+    *)
+        echo "bootstrap-android: only Linux x86_64 is supported; found $(uname -m)." >&2
+        exit 1
+        ;;
+esac
+
+mkdir -p "$TOOLING" "$DOWNLOADS" "$LOGS" "$USER_HOME_DIR" "$AVD_HOME"
+
+export JAVA_HOME="$JDK_DIR"
+export ANDROID_HOME="$SDK_DIR"
+export ANDROID_SDK_ROOT="$SDK_DIR"
+export ANDROID_USER_HOME="$USER_HOME_DIR"
+export ANDROID_AVD_HOME="$AVD_HOME"
+export ANDROID_EMULATOR_HOME="$USER_HOME_DIR"
+export PATH="$JAVA_HOME/bin:$SDK_DIR/cmdline-tools/latest/bin:$SDK_DIR/platform-tools:$SDK_DIR/emulator:$PATH"
+
+die() { echo "bootstrap-android: $*" >&2; exit 1; }
+
+need() { command -v "$1" >/dev/null 2>&1 || die "required host tool '$1' not found"; }
+
+download() {
+    url="$1"
+    dest="$2"
+    if [ -s "$dest" ]; then
+        return 0
+    fi
+    echo "Downloading $url"
+    curl -fL --retry 3 --retry-delay 2 -o "$dest.part" "$url"
+    mv "$dest.part" "$dest"
+}
+
+verify_sha256() {
+    file="$1"
+    expected="$2"
+    actual="$(sha256sum "$file" | awk '{print $1}')"
+    [ "$actual" = "$expected" ] || die "SHA-256 mismatch for $file (got $actual)"
+}
+
+verify_sha1() {
+    file="$1"
+    expected="$2"
+    actual="$(sha1sum "$file" | awk '{print $1}')"
+    [ "$actual" = "$expected" ] || die "SHA-1 mismatch for $file (got $actual)"
+}
+
+install_jdk() {
+    if [ -x "$JDK_DIR/bin/java" ]; then
+        echo "JDK present: $("$JDK_DIR/bin/java" -version 2>&1 | head -1)"
+        return 0
+    fi
+    need curl
+    need tar
+    archive="$DOWNLOADS/$JDK_ASSET"
+    download "$JDK_URL" "$archive"
+    verify_sha256 "$archive" "$JDK_SHA256"
+    tmp="$TOOLING/.jdk-extract"
+    rm -rf "$tmp"
+    mkdir -p "$tmp"
+    tar -xzf "$archive" -C "$tmp"
+    src="$(find "$tmp" -maxdepth 1 -type d -name 'jdk-*' | head -1)"
+    [ -n "$src" ] || die "JDK archive did not contain a jdk-* directory"
+    rm -rf "$JDK_DIR"
+    mv "$src" "$JDK_DIR"
+    rm -rf "$tmp"
+    echo "JDK installed: $("$JDK_DIR/bin/java" -version 2>&1 | head -1)"
+}
+
+install_cmdline_tools() {
+    if [ -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
+        echo "cmdline-tools present"
+        return 0
+    fi
+    need curl
+    need unzip
+    archive="$DOWNLOADS/$CMDLINE_ASSET"
+    download "$CMDLINE_URL" "$archive"
+    verify_sha1 "$archive" "$CMDLINE_SHA1"
+    tmp="$TOOLING/.cmdline-extract"
+    rm -rf "$tmp"
+    mkdir -p "$tmp"
+    unzip -q "$archive" -d "$tmp"
+    rm -rf "$SDK_DIR/cmdline-tools/latest"
+    mkdir -p "$SDK_DIR/cmdline-tools"
+    mv "$tmp/cmdline-tools" "$SDK_DIR/cmdline-tools/latest"
+    rm -rf "$tmp"
+    echo "cmdline-tools installed"
+}
+
+install_sdk_packages() {
+    sdkmanager="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+    [ -x "$sdkmanager" ] || die "sdkmanager missing"
+    yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+    "$sdkmanager" --install "platform-tools" "platforms;$PLATFORM" \
+        "build-tools;$BUILD_TOOLS" "emulator" "$SYSTEM_IMAGE" >/dev/null
+    echo "SDK packages installed"
+}
+
+create_avd() {
+    if [ -f "$AVD_HOME/$AVD_NAME.ini" ]; then
+        echo "AVD present: $AVD_NAME"
+        return 0
+    fi
+    avdmanager="$SDK_DIR/cmdline-tools/latest/bin/avdmanager"
+    [ -x "$avdmanager" ] || die "avdmanager missing"
+    echo no | "$avdmanager" create avd -n "$AVD_NAME" -k "$SYSTEM_IMAGE" \
+        -d pixel_6 --force >/dev/null
+    echo "AVD created: $AVD_NAME"
+}
+
+wait_for_boot() {
+    adb="$SDK_DIR/platform-tools/adb"
+    i=0
+    while [ "$i" -lt 180 ]; do
+        state="$("$adb" -s "$EMULATOR_SERIAL" get-state 2>/dev/null || true)"
+        if [ "$state" = "device" ]; then
+            booted="$("$adb" -s "$EMULATOR_SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
+            if [ "$booted" = "1" ]; then
+                echo "Emulator booted: $EMULATOR_SERIAL"
+                return 0
+            fi
+        fi
+        i=$((i + 1))
+        sleep 2
+    done
+    die "emulator $EMULATOR_SERIAL did not finish booting"
+}
+
+start_emulator() {
+    adb="$SDK_DIR/platform-tools/adb"
+    if "$adb" devices | grep -q "^$EMULATOR_SERIAL[[:space:]]*device"; then
+        echo "Emulator already running: $EMULATOR_SERIAL"
+        return 0
+    fi
+    log="$LOGS/emulator-$EMULATOR_PORT.log"
+    echo "Starting emulator $AVD_NAME on port $EMULATOR_PORT (log: $log)"
+    nohup "$SDK_DIR/emulator/emulator" -avd "$AVD_NAME" -port "$EMULATOR_PORT" \
+        -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics \
+        -gpu swiftshader_indirect -accel on >"$log" 2>&1 &
+    echo "$!" >"$LOGS/emulator-$EMULATOR_PORT.pid"
+    wait_for_boot
+}
+
+emit_env() {
+    cat <<EOF
+export JAVA_HOME="$JDK_DIR"
+export ANDROID_HOME="$SDK_DIR"
+export ANDROID_SDK_ROOT="$SDK_DIR"
+export ANDROID_USER_HOME="$USER_HOME_DIR"
+export ANDROID_AVD_HOME="$AVD_HOME"
+export ANDROID_EMULATOR_HOME="$USER_HOME_DIR"
+export PATH="$JDK_DIR/bin:$SDK_DIR/cmdline-tools/latest/bin:$SDK_DIR/platform-tools:$SDK_DIR/emulator:\$PATH"
+EOF
+}
+
+install_jdk
+install_cmdline_tools
+install_sdk_packages
+create_avd
+
+case "${1:-}" in
+    --start-emulator) start_emulator ;;
+    "" ) ;;
+    * ) die "unknown argument: $1" ;;
+esac
+
+echo
+echo "Environment:"
+emit_env
+echo
+echo "Serial: $EMULATOR_SERIAL"

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- OmaTube stores library data in its private Room database and ordinary
+         settings in DataStore; both live in the app data directory and use
+         default backup. The remembered API key ciphertext is intentionally
+         kept in Context.noBackupFilesDir, which is excluded from backup, so a
+         restore never brings back ciphertext the Keystore cannot decrypt. -->
+</full-backup-content>

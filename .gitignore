@@ -1,0 +1,67 @@
+# Private, host-local Android toolchain (installed by bin/bootstrap-android)
+.tooling/
+
+# Gradle
+.gradle/
+build/
+app/build/
+*/build/
+out/
+local.properties
+gradle-local.properties
+
+# Kotlin/KSP caches
+.kotlin/
+**/.kotlin/
+
+# Android native build output
+.cxx/
+**/.cxx/
+.externalNativeBuild/
+**/.externalNativeBuild/
+obj/
+
+# Profiling, logs and coverage
+*.hprof
+*.log
+logs/
+.jacoco/
+*.exec
+*.ec
+
+# IDE and editor state
+.idea/
+*.iml
+.navigation/
+.vscode/
+.vs/
+*.code-workspace
+*.swp
+*.swo
+*~
+*.orig
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# Captures and release output
+captures/
+dist/
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+keystore.properties
+signing.properties
+google-services.json
