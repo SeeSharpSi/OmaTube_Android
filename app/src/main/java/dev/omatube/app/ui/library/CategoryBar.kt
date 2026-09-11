@@ -26,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
@@ -177,7 +176,7 @@ private fun CategoryChip(
     val background = when {
         selected -> colors.accent
         pressed -> colors.selection
-        else -> Color.Transparent
+        else -> colors.lighterBackground
     }
     val border = if (selected || pressed) colors.accent else colors.muted
     val textColor = if (selected) colors.lighterBackground else colors.foreground

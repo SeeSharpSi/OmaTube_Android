@@ -1,6 +1,8 @@
 package dev.omatube.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -28,6 +31,7 @@ import dev.omatube.app.ui.components.OmaGlyphKind
 import dev.omatube.app.ui.components.OmaNavButton
 import dev.omatube.app.ui.components.OmaStatusPill
 import dev.omatube.app.ui.components.OmaText
+import dev.omatube.app.ui.library.CategoryBar
 import dev.omatube.app.ui.library.FeedContent
 import dev.omatube.app.ui.library.HistoryContent
 import dev.omatube.app.ui.library.LibraryRoutes
@@ -37,10 +41,12 @@ import dev.omatube.app.ui.theme.OmaColors
 
 /**
  * Library entry point shared by the full and simple UIs. Renders the active
- * feed, history, or Watch Next route as the scrolling content, then a header
- * row (route title plus navigation) at the bottom (replacing the desktop
- * keyboard bindings), and error/status overlays. All filtering is local; this
- * composable never performs network or persistence work.
+ * feed, history, or Watch Next route as the scrolling content, a transparent
+ * category overlay hovering above the feed just above the bottom navigation
+ * (feed route only; gap taps are consumed so they never reach videos behind),
+ * then a header row (route title plus navigation) at the bottom (replacing the
+ * desktop keyboard bindings), and error/status overlays. All filtering is
+ * local; this composable never performs network or persistence work.
  */
 @Composable
 fun LibraryScreen(
@@ -91,40 +97,67 @@ fun LibraryScreen(
                 .padding(top = topMargin, bottom = bottomMargin),
             verticalArrangement = Arrangement.Top,
         ) {
-            when (currentRoute) {
-                LibraryRoutes.HISTORY -> HistoryContent(
-                    library = library,
-                    settings = settings,
-                    automation = automation,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    onOpenVideo = onOpenVideo,
-                    onDeleteHistory = onDeleteHistory,
-                )
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                when (currentRoute) {
+                    LibraryRoutes.HISTORY -> HistoryContent(
+                        library = library,
+                        settings = settings,
+                        automation = automation,
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenVideo = onOpenVideo,
+                        onDeleteHistory = onDeleteHistory,
+                    )
 
-                LibraryRoutes.WATCH_NEXT -> WatchNextContent(
-                    library = library,
-                    automation = automation,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    onOpenVideo = onOpenVideo,
-                    onRemoveWatchNext = onRemoveWatchNext,
-                    onMoveWatchNext = onMoveWatchNext,
-                )
+                    LibraryRoutes.WATCH_NEXT -> WatchNextContent(
+                        library = library,
+                        automation = automation,
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenVideo = onOpenVideo,
+                        onRemoveWatchNext = onRemoveWatchNext,
+                        onMoveWatchNext = onMoveWatchNext,
+                    )
 
-                else -> FeedContent(
-                    library = library,
-                    settings = settings,
-                    selectedCategoryId = selectedCategoryId,
-                    refreshing = refreshing,
-                    loadingMore = loadingMore,
-                    hasMore = hasMore,
-                    automation = automation,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    onCategory = onCategory,
-                    onMoveCategory = onMoveCategory,
-                    onLoadMore = onLoadMore,
-                    onOpenVideo = onOpenVideo,
-                    onAddWatchNext = onAddWatchNext,
-                )
+                    else -> FeedContent(
+                        library = library,
+                        settings = settings,
+                        selectedCategoryId = selectedCategoryId,
+                        refreshing = refreshing,
+                        loadingMore = loadingMore,
+                        hasMore = hasMore,
+                        automation = automation,
+                        modifier = Modifier.fillMaxSize(),
+                        onLoadMore = onLoadMore,
+                        onOpenVideo = onOpenVideo,
+                        onAddWatchNext = onAddWatchNext,
+                    )
+                }
+                if (currentRoute == LibraryRoutes.FEED && library.categories.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, bottom = 8.dp)
+                            .testTag("categoryOverlay")
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {},
+                            ),
+                        contentAlignment = Alignment.BottomStart,
+                    ) {
+                        CategoryBar(
+                            categories = library.categories,
+                            selectedCategoryId = selectedCategoryId,
+                            chrome = !simple,
+                            barHeight = if (simple) 42.dp else 36.dp,
+                            buttonHeight = if (simple) 40.dp else 34.dp,
+                            horizontalPadding = if (simple) 18.dp else 14.dp,
+                            fontSize = if (simple) 14.sp else 11.sp,
+                            onCategory = onCategory,
+                            onMoveCategory = onMoveCategory,
+                        )
+                    }
+                }
             }
             LibraryBottomBar(
                 simple = simple,

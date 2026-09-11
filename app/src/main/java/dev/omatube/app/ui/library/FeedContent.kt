@@ -25,13 +25,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.omatube.app.model.LibrarySnapshot
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.Video
-import dev.omatube.app.ui.components.OmaDivider
-import dev.omatube.app.ui.theme.LocalOmaColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
@@ -44,16 +42,15 @@ fun FeedContent(
     hasMore: Boolean,
     automation: Boolean,
     modifier: Modifier = Modifier,
-    onCategory: (Long) -> Unit,
-    onMoveCategory: (Long, Int) -> Unit,
     onLoadMore: () -> Unit,
     onOpenVideo: (Video) -> Unit,
     onAddWatchNext: (String) -> Unit,
 ) {
-    val colors = LocalOmaColors.current
     val simple = settings.simpleUi
     val spacing = if (simple) 18.dp else 14.dp
     val chrome = !simple
+    val overlayReserve = (if (simple) 42.dp else 36.dp) + 16.dp
+    val bottomContentPadding = overlayReserve + 12.dp
 
     val videos = remember(
         library.videos,
@@ -78,24 +75,13 @@ fun FeedContent(
             automation = automation,
             onOpen = onOpenVideo,
         )
-        CategoryBar(
-            categories = library.categories,
-            selectedCategoryId = selectedCategoryId,
-            chrome = chrome,
-            barHeight = if (simple) 42.dp else 36.dp,
-            buttonHeight = if (simple) 40.dp else 34.dp,
-            horizontalPadding = if (simple) 18.dp else 14.dp,
-            fontSize = if (simple) 14.sp else 11.sp,
-            onCategory = onCategory,
-            onMoveCategory = onMoveCategory,
-        )
-        OmaDivider(color = colors.muted)
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             if (simple) {
                 SimpleFeedList(
                     videos = videos,
                     loadingMore = loadingMore,
                     hasMore = hasMore,
+                    bottomContentPadding = bottomContentPadding,
                     onLoadMore = onLoadMore,
                     onOpenVideo = onOpenVideo,
                     onAddWatchNext = onAddWatchNext,
@@ -106,6 +92,7 @@ fun FeedContent(
                     loadingMore = loadingMore,
                     hasMore = hasMore,
                     automation = automation,
+                    bottomContentPadding = bottomContentPadding,
                     onLoadMore = onLoadMore,
                     onOpenVideo = onOpenVideo,
                     onAddWatchNext = onAddWatchNext,
@@ -129,6 +116,7 @@ private fun FullFeedGrid(
     loadingMore: Boolean,
     hasMore: Boolean,
     automation: Boolean,
+    bottomContentPadding: Dp = 0.dp,
     onLoadMore: () -> Unit,
     onOpenVideo: (Video) -> Unit,
     onAddWatchNext: (String) -> Unit,
@@ -162,7 +150,12 @@ private fun FullFeedGrid(
             columns = GridCells.Fixed(columns),
             state = state,
             modifier = Modifier.fillMaxSize().testTag("feedGrid"),
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(
+                start = 6.dp,
+                end = 6.dp,
+                top = 12.dp,
+                bottom = bottomContentPadding,
+            ),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -196,6 +189,7 @@ private fun SimpleFeedList(
     videos: List<Video>,
     loadingMore: Boolean,
     hasMore: Boolean,
+    bottomContentPadding: Dp = 0.dp,
     onLoadMore: () -> Unit,
     onOpenVideo: (Video) -> Unit,
     onAddWatchNext: (String) -> Unit,
@@ -221,6 +215,7 @@ private fun SimpleFeedList(
     LazyColumn(
         state = state,
         modifier = Modifier.fillMaxSize().testTag("feedList"),
+        contentPadding = PaddingValues(bottom = bottomContentPadding),
     ) {
         items(items = videos, key = { it.id }) { video ->
             SimpleVideoRow(
