@@ -9,9 +9,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 /**
- * Bundled desktop palettes, copied byte-for-byte from the desktop theme
- * bundles under themes/<id>/colors.toml. No Material defaults, no dynamic
- * colors: the library UI uses only these values.
+ * Bundled desktop palettes, taken from the desktop theme bundles under
+ * themes/<id>/colors.toml. The Default palette intentionally uses its own blue
+ * for [OmaColors.accent] instead of the desktop near-black accent, so seek
+ * progress and accent chrome stay visible on the light background. No Material
+ * defaults, no dynamic colors: the library UI uses only these values.
  */
 object OmaThemeIds {
     const val DEFAULT = "default"
@@ -74,7 +76,7 @@ data class OmaColors(
 
 private val default = OmaColors(
     mode = "light",
-    accent = Color(0xFF24221E),
+    accent = Color(0xFF466D8F),
     selection = Color(0xFFEEE9DF),
     muted = Color(0xFFDED8CC),
     background = Color(0xFFF7F4ED),

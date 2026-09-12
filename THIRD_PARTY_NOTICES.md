@@ -147,7 +147,7 @@ The Android port re-implements behavior from the desktop application, including:
 - `backend/ChannelInput.kt` from the desktop channel reference parsing.
 - `backend/SponsorBlockClient.kt` from the desktop SponsorBlock client.
 - `automation/AutomationFixture.kt` from the desktop automation fixture.
-- `ui/theme/OmaTheme.kt` palettes copied from the desktop `themes/*/colors.toml`.
+- `ui/theme/OmaTheme.kt` palettes taken from the desktop `themes/*/colors.toml`; the Android Default accent uses its palette blue.
 - Compose screens modeled on the desktop QML Full and Simple interfaces.
 
 ## Before public distribution

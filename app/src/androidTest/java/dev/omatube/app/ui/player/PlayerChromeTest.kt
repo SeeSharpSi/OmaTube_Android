@@ -1,15 +1,20 @@
 package dev.omatube.app.ui.player
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.omatube.app.player.PlaybackQuality
 import dev.omatube.app.player.PlayerUiState
 import dev.omatube.app.ui.theme.OmaColors
 import dev.omatube.app.ui.theme.OmaTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -82,6 +87,66 @@ class PlayerChromeTest {
     }
 
     @Test
+    fun seekBarReportsScrubContactOnDownAndRelease() {
+        var scrubbing = false
+        compose.setContent {
+            OmaTheme("default") {
+                PlayerSeekBar(
+                    positionMs = 1_000L,
+                    durationMs = 10_000L,
+                    live = false,
+                    segments = emptyList(),
+                    colors = colors,
+                    onSeek = {},
+                    onScrubbingChange = { scrubbing = it },
+                )
+            }
+        }
+
+        val seekBar = compose.onNodeWithTag("playerSeekBar")
+        seekBar.performTouchInput { down(center) }
+        compose.waitForIdle()
+        assertTrue("pointer down should report active contact", scrubbing)
+
+        seekBar.performTouchInput { up() }
+        compose.waitForIdle()
+        assertFalse("release should report inactive contact", scrubbing)
+    }
+
+    @Test
+    fun scrubLabelTracksDragAndDisappearsOnRelease() {
+        compose.setContent {
+            OmaTheme("default") {
+                PlayerSeekBar(
+                    positionMs = 0L,
+                    durationMs = 100_000L,
+                    live = false,
+                    segments = emptyList(),
+                    colors = colors,
+                    onSeek = {},
+                )
+            }
+        }
+
+        compose.onNodeWithTag("playerSeekScrubLabel").assertDoesNotExist()
+
+        val seekBar = compose.onNodeWithTag("playerSeekBar")
+        seekBar.performTouchInput {
+            down(Offset(0f, center.y))
+            moveTo(Offset(width / 2f, center.y))
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("playerSeekScrubLabel").assertExists()
+        compose.onNodeWithText("0:50").assertExists()
+
+        seekBar.performTouchInput { up() }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("playerSeekScrubLabel").assertDoesNotExist()
+    }
+
+    @Test
     fun muteButtonIsSquareIconWithoutText() {
         compose.setContent {
             OmaTheme("default") {
@@ -125,7 +190,7 @@ class PlayerChromeTest {
     }
 
     @Test
-    fun loadingOverlayIsSquare() {
+    fun loadingOverlayIs80dpSquare() {
         compose.setContent {
             OmaTheme("default") {
                 PlayerOverlay(
@@ -139,6 +204,8 @@ class PlayerChromeTest {
 
         val size = compose.onNodeWithTag("playerOverlay").fetchSemanticsNode().size
         assertEquals(size.width, size.height)
+        val expected = with(compose.density) { 80.dp.roundToPx() }
+        assertEquals(expected, size.width)
     }
 
     @Test

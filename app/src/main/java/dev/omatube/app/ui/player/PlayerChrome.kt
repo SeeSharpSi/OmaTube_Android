@@ -4,18 +4,23 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,6 +32,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +45,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -65,6 +72,7 @@ import dev.omatube.app.player.SponsorBlockLogic
 import dev.omatube.app.ui.theme.OmaColors
 import dev.omatube.app.ui.theme.OmaTypography
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 internal val ChromeBackground = Color(0.02f, 0.02f, 0.02f, 0.82f)
 internal val OverlayBackground = Color(0.02f, 0.02f, 0.02f, 0.88f)
@@ -407,9 +415,11 @@ internal fun PlayerSeekBar(
     colors: OmaColors,
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    onScrubbingChange: (Boolean) -> Unit = {},
 ) {
     var dragging by remember { mutableStateOf(false) }
     var previewFraction by remember { mutableFloatStateOf(0f) }
+    val currentOnScrubbingChange = rememberUpdatedState(onScrubbingChange)
     val enabled = durationMs > 0L
     val playbackFraction = if (durationMs > 0L) {
         (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
@@ -419,55 +429,109 @@ internal fun PlayerSeekBar(
     val fraction = if (dragging) previewFraction else playbackFraction
     val shownMs = if (dragging) (previewFraction * durationMs).toLong() else positionMs
 
-    Canvas(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(40.dp)
-            .testTag("playerSeekBar")
-            .semantics {
-                if (durationMs > 0L) {
-                    progressBarRangeInfo = ProgressBarRangeInfo(
-                        current = shownMs.toFloat(),
-                        range = 0f..durationMs.toFloat(),
+            .height(40.dp),
+    ) {
+        val density = LocalDensity.current
+        val textMeasurer = rememberTextMeasurer()
+        val widthPx = constraints.maxWidth.toFloat()
+
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("playerSeekBar")
+                .semantics {
+                    if (durationMs > 0L) {
+                        progressBarRangeInfo = ProgressBarRangeInfo(
+                            current = shownMs.toFloat(),
+                            range = 0f..durationMs.toFloat(),
+                        )
+                    }
+                    setProgress { target ->
+                        onSeek(target.toLong().coerceIn(0L, durationMs.coerceAtLeast(0L)))
+                        true
+                    }
+                }
+                .pointerInput(enabled, durationMs) {
+                    if (!enabled) return@pointerInput
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            dragging = true
+                            previewFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        },
+                        onDragEnd = {
+                            dragging = false
+                            onSeek((previewFraction * durationMs).toLong())
+                        },
+                        onDragCancel = { dragging = false },
+                        onHorizontalDrag = { change, _ ->
+                            previewFraction = (change.position.x / size.width).coerceIn(0f, 1f)
+                            change.consume()
+                        },
                     )
                 }
-                setProgress { target ->
-                    onSeek(target.toLong().coerceIn(0L, durationMs.coerceAtLeast(0L)))
-                    true
+                .pointerInput(enabled, durationMs) {
+                    if (!enabled) return@pointerInput
+                    detectTapGestures { offset ->
+                        onSeek(((offset.x / size.width).coerceIn(0f, 1f) * durationMs).toLong())
+                    }
                 }
-            }
-            .pointerInput(enabled, durationMs) {
-                if (!enabled) return@pointerInput
-                detectHorizontalDragGestures(
-                    onDragStart = { offset ->
-                        dragging = true
-                        previewFraction = (offset.x / size.width).coerceIn(0f, 1f)
-                    },
-                    onDragEnd = {
-                        dragging = false
-                        onSeek((previewFraction * durationMs).toLong())
-                    },
-                    onDragCancel = { dragging = false },
-                    onHorizontalDrag = { change, _ ->
-                        previewFraction = (change.position.x / size.width).coerceIn(0f, 1f)
-                        change.consume()
-                    },
-                )
-            }
-            .pointerInput(enabled, durationMs) {
-                if (!enabled) return@pointerInput
-                detectTapGestures { offset ->
-                    onSeek(((offset.x / size.width).coerceIn(0f, 1f) * durationMs).toLong())
-                }
-            },
-    ) {
-        drawDesktopSlider(
-            colors = colors,
-            fraction = fraction,
-            pressed = dragging,
-            segments = segments,
-            durationMs = durationMs,
-        )
+                // Non-consuming monitor: reports scrub contact for any pointer
+                // down, including a stationary press and the pre-slop phase. It
+                // observes final-pass events, so it cannot race the tap and drag
+                // detectors into reporting release while a drag is still active.
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
+                    var active = false
+                    try {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            active = true
+                            currentOnScrubbingChange.value(true)
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Final)
+                                if (event.changes.none { it.pressed }) break
+                            }
+                            active = false
+                            currentOnScrubbingChange.value(false)
+                        }
+                    } finally {
+                        if (active) {
+                            active = false
+                            currentOnScrubbingChange.value(false)
+                        }
+                    }
+                },
+        ) {
+            drawDesktopSlider(
+                colors = colors,
+                fraction = fraction,
+                pressed = dragging,
+                segments = segments,
+                durationMs = durationMs,
+            )
+        }
+
+        if (dragging) {
+            val labelText = formatTime(shownMs / 1000f)
+            val textWidthPx = textMeasurer.measure(AnnotatedString(labelText), timeStyle).size.width.toFloat()
+            val padPx = with(density) { 4.dp.toPx() }
+            val labelWidthPx = textWidthPx + padPx * 2f
+            val left = (fraction * widthPx - labelWidthPx / 2f)
+                .coerceIn(0f, (widthPx - labelWidthPx).coerceAtLeast(0f))
+            BasicText(
+                text = labelText,
+                style = timeStyle,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset { IntOffset(left.roundToInt(), 0) }
+                    .background(ChromeBackground)
+                    .padding(horizontal = 4.dp)
+                    .testTag("playerSeekScrubLabel"),
+            )
+        }
     }
 }
 
@@ -647,11 +711,11 @@ internal fun PlayerOverlay(
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier
-                .then(if (isLoading) Modifier.size(120.dp) else Modifier.width(320.dp))
+                .then(if (isLoading) Modifier.size(80.dp) else Modifier.width(320.dp))
                 .testTag("playerOverlay")
                 .background(OverlayBackground)
                 .border(1.dp, if (isError) colors.red else colors.accent, RectangleShape)
-                .padding(24.dp),
+                .padding(if (isLoading) 12.dp else 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = if (isLoading) Arrangement.Center else Arrangement.spacedBy(12.dp),
         ) {

@@ -23,10 +23,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.graphics.RectangleShape
@@ -36,6 +38,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -45,6 +48,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -132,11 +137,28 @@ fun PlayerScreen(
     PlayerLifecycleEffects(activity = activity, controller = controller)
 
     var chromeVisible by remember { mutableStateOf(true) }
-    LaunchedEffect(state.playing, chromeVisible) {
-        if (state.playing && chromeVisible) {
+    var scrubbing by remember { mutableStateOf(false) }
+    // Bumped on every scrub contact change so releasing the seek bar restarts
+    // the full idle delay instead of resuming an old countdown.
+    var seekInteraction by remember { mutableIntStateOf(0) }
+    LaunchedEffect(state.playing, chromeVisible, scrubbing, seekInteraction) {
+        if (state.playing && chromeVisible && !scrubbing) {
             delay(CHROME_IDLE_MS)
             chromeVisible = false
         }
+    }
+
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val displayCutout = WindowInsets.displayCutout
+    // One-sided cutout insets are asymmetric; mirror the larger physical side
+    // onto both ends so the landscape chrome stays symmetric and the right
+    // controls cannot sit under a corner cutout.
+    val cutoutHorizontal = with(density) {
+        maxOf(
+            displayCutout.getLeft(this, layoutDirection),
+            displayCutout.getRight(this, layoutDirection),
+        ).toDp()
     }
 
     Box(
@@ -182,11 +204,14 @@ fun PlayerScreen(
         // immersive landscape. The video surface above is intentionally not
         // inset and keeps filling the whole window. Only displayCutout is
         // applied, never safeDrawing/systemBars, so the hidden status bar
-        // cannot double-inset the chrome.
+        // cannot double-inset the chrome. The cutout contributes only its
+        // vertical sides here; the larger of the left/right insets is mirrored
+        // as horizontal padding so both chrome edges clear a corner cutout.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.displayCutout),
+                .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Vertical))
+                .padding(horizontal = cutoutHorizontal),
         ) {
             if (chromeVisible) {
                 PlayerChromeLayer(
@@ -196,6 +221,13 @@ fun PlayerScreen(
                     onClose = onClose,
                     onTogglePlay = controller::togglePlay,
                     onSeek = controller::seekTo,
+                    onScrubbingChange = { active ->
+                        scrubbing = active
+                        seekInteraction += 1
+                        if (active) {
+                            chromeVisible = true
+                        }
+                    },
                     onQuality = controller::setQuality,
                     onToggleMute = controller::toggleMute,
                     onLive = controller::seekToLiveEdge,
@@ -283,6 +315,7 @@ private fun PlayerChromeLayer(
     onClose: () -> Unit,
     onTogglePlay: () -> Unit,
     onSeek: (Long) -> Unit,
+    onScrubbingChange: (Boolean) -> Unit,
     onQuality: (Int) -> Unit,
     onToggleMute: () -> Unit,
     onLive: () -> Unit,
@@ -319,6 +352,7 @@ private fun PlayerChromeLayer(
                     fullscreen = fullscreen,
                     onTogglePlay = onTogglePlay,
                     onSeek = onSeek,
+                    onScrubbingChange = onScrubbingChange,
                     onToggleMute = onToggleMute,
                     onLive = onLive,
                     onFullscreen = onFullscreen,
@@ -378,6 +412,7 @@ private fun PlayerBottomBar(
     fullscreen: Boolean,
     onTogglePlay: () -> Unit,
     onSeek: (Long) -> Unit,
+    onScrubbingChange: (Boolean) -> Unit,
     onToggleMute: () -> Unit,
     onLive: () -> Unit,
     onFullscreen: () -> Unit,
@@ -404,6 +439,7 @@ private fun PlayerBottomBar(
                     colors = colors,
                     onSeek = onSeek,
                     modifier = Modifier.fillMaxWidth(),
+                    onScrubbingChange = onScrubbingChange,
                 )
                 Row(
                     modifier = Modifier.weight(1f),
@@ -453,6 +489,7 @@ private fun PlayerBottomBar(
                     colors = colors,
                     onSeek = onSeek,
                     modifier = Modifier.weight(1f),
+                    onScrubbingChange = onScrubbingChange,
                 )
                 BasicText(
                     text = formatTime(state.durationMs / 1000f),

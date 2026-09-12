@@ -8,8 +8,9 @@ import androidx.compose.ui.graphics.Color
  *
  * The settings module deliberately does not depend on the shared [OmaTheme]
  * composable so it can compile and render before the common UI module lands.
- * Values are copied from the desktop bundles and must stay byte-for-byte
- * compatible with them:
+ * Values are taken from the desktop bundles and match them, except that the
+ * Default accent intentionally uses the palette blue so seek progress and
+ * accent chrome stay visible:
  *
  * - [dev.omatube.app.ui.settings.SettingsThemes.DEFAULT] -> themes/default/colors.toml
  * - [dev.omatube.app.ui.settings.SettingsThemes.ROSE_PINE] -> themes/rose-pine/colors.toml
@@ -106,7 +107,7 @@ private data class RawPalette(
 }
 
 private val default = RawPalette(
-    accent = Color(0xFF24221E),
+    accent = Color(0xFF466D8F),
     selection = Color(0xFFEEE9DF),
     muted = Color(0xFFDED8CC),
     background = Color(0xFFF7F4ED),
