@@ -1,12 +1,15 @@
 package dev.omatube.app.ui.library
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -30,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import dev.omatube.app.model.LibrarySnapshot
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.Video
+import dev.omatube.app.ui.theme.LocalOmaColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
@@ -47,11 +51,11 @@ fun FeedContent(
     onAddWatchNext: (String) -> Unit,
 ) {
     val simple = settings.simpleUi
-    val spacing = if (simple) 18.dp else 14.dp
     val chrome = !simple
     val overlayReserve = (if (simple) 42.dp else 36.dp) + 16.dp
     val bottomContentPadding = overlayReserve + 12.dp
 
+    val colors = LocalOmaColors.current
     val videos = remember(
         library.videos,
         library.channels,
@@ -67,13 +71,22 @@ fun FeedContent(
 
     Column(
         modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(spacing),
     ) {
-        LiveRow(
-            live = live,
-            avatarUrls = avatarUrls,
-            automation = automation,
-            onOpen = onOpenVideo,
+        if (live.isNotEmpty()) {
+            LiveRow(
+                live = live,
+                avatarUrls = avatarUrls,
+                automation = automation,
+                onOpen = onOpenVideo,
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(colors.accent)
+                .testTag("liveDivider"),
         )
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             if (simple) {
@@ -92,6 +105,7 @@ fun FeedContent(
                     loadingMore = loadingMore,
                     hasMore = hasMore,
                     automation = automation,
+                    topContentPadding = 0.dp,
                     bottomContentPadding = bottomContentPadding,
                     onLoadMore = onLoadMore,
                     onOpenVideo = onOpenVideo,
@@ -116,6 +130,7 @@ private fun FullFeedGrid(
     loadingMore: Boolean,
     hasMore: Boolean,
     automation: Boolean,
+    topContentPadding: Dp = 12.dp,
     bottomContentPadding: Dp = 0.dp,
     onLoadMore: () -> Unit,
     onOpenVideo: (Video) -> Unit,
@@ -153,7 +168,7 @@ private fun FullFeedGrid(
             contentPadding = PaddingValues(
                 start = 6.dp,
                 end = 6.dp,
-                top = 12.dp,
+                top = topContentPadding,
                 bottom = bottomContentPadding,
             ),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
