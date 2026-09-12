@@ -192,10 +192,14 @@ print((minx + maxx) // 2, (r[0] + r[1]) // 2)
 PY
 }
 
-# Visual check that the desktop slider handles are square. The player chrome is
-# paused when this runs. The bands match the current compact portrait chrome
-# (seek row ~2169-2268, volume row ~2279-2379); a layout change surfaces as a
-# failed detection rather than being silently skipped.
+# Visual check that the desktop seek handle is square. The player chrome is
+# paused when this runs. The band matches the current compact portrait chrome
+# (seek row ~2110-2210 with the 16 dp bottom lift). It excludes the bottom
+# bar's top accent border, which would otherwise merge with the track into a
+# full-width detection, and spans the bar's full width so the handle is found
+# at any playback position. (There is no in-app volume slider; volume is left
+# to the phone buttons, so only the seek handle is checked.) A layout change
+# surfaces as a failed detection rather than being silently skipped.
 assert_square_handles() {
   local png="$1" out name w h
   if ! python3 -c "import PIL" >/dev/null 2>&1; then
@@ -218,7 +222,7 @@ def probe(x1, x2, y1, y2):
     w = tall[-1][0] - tall[0][0] + 1
     h = max(a[2] for a in tall) - min(a[1] for a in tall) + 1
     return w, h
-for name, box in (("seek", (244, 943, 2185, 2255)), ("volume", (247, 483, 2295, 2365))):
+for name, box in (("seek", (21, 1059, 2110, 2210)),):
     r = probe(*box)
     print(name, "none" if r is None else f"{r[0]} {r[1]}")
 PY
@@ -386,16 +390,37 @@ if node_present text "Got it"; then tap_text "Got it"; sleep 0.4; say "dismissed
 
 # Open the player and pause it. Chrome auto-hides 3 s after playback starts, so
 # pausing holds the chrome up for deterministic captures and interactions.
-# The play/pause button in portrait compact chrome is at ~(74, 2219). Wait long
-# enough for the automation engine's load to finish before pausing so the
-# player actually holds the paused state.
+# The play/pause button is located by its content description (it sits below
+# the seek bar in the compact layout). Poll briefly because the automation
+# engine may still be loading on the first dump; a stable "Play" means the
+# player is already paused with the chrome held. The fixed coordinate is only
+# a last resort and matches the current compact play-button center.
 player_open_paused() {
-  local ui="$1"
+  local ui="$1" attempt
   start "$ui" player default 1.4
-  sleep 1.1
-  adb shell input tap 74 2219
+  for attempt in 1 2 3 4 5 6; do
+    sleep 1.0
+    dump_ui || continue
+    if PLAY_XY="$(node_center content-desc "Pause")"; then
+      adb shell input tap $PLAY_XY
+      sleep 0.6
+      say "paused player ui=$ui (chrome held)"
+      return 0
+    fi
+    if node_present content-desc "Play"; then
+      sleep 1.5
+      dump_ui || continue
+      if PLAY_XY="$(node_center content-desc "Pause")"; then
+        adb shell input tap $PLAY_XY
+        sleep 0.6
+      fi
+      say "paused player ui=$ui (chrome held)"
+      return 0
+    fi
+  done
+  adb shell input tap 73 2284
   sleep 0.6
-  say "paused player ui=$ui (chrome held)"
+  say "paused player ui=$ui (chrome held, fallback tap)"
 }
 
 player_open_paused full

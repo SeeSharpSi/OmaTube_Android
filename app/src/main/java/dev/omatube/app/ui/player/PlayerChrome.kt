@@ -43,6 +43,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -149,6 +150,8 @@ internal fun PlayPauseButton(
     Box(
         modifier = Modifier
             .size(buttonSize)
+            .testTag("playerPlayPauseButton")
+            .semantics { contentDescription = if (playing) "Pause" else "Play" }
             .background(if (pressed) colors.accent.copy(alpha = 0.22f) else Color.Transparent)
             .border(1.dp, if (pressed) colors.accent else colors.muted, RectangleShape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
@@ -169,6 +172,158 @@ internal fun PlayPauseButton(
                     color = ChromeInk,
                 )
             }
+        }
+    }
+}
+
+/**
+ * Square speaker icon replacing the MUTE/UNMUTE text button. Height matches
+ * the old text button (36 dp); only the width shrinks to a square.
+ */
+@Composable
+internal fun MuteButton(
+    muted: Boolean,
+    colors: OmaColors,
+    onClick: () -> Unit,
+    buttonSize: Dp = 36.dp,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Box(
+        modifier = Modifier
+            .size(buttonSize)
+            .testTag("playerMuteButton")
+            .semantics { contentDescription = if (muted) "Unmute" else "Mute" }
+            .background(if (pressed) colors.accent.copy(alpha = 0.22f) else Color.Transparent)
+            .border(1.dp, if (pressed) colors.accent else colors.muted, RectangleShape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(buttonSize)) {
+            val w = size.width
+            val h = size.height
+            drawRect(ChromeInk, topLeft = Offset(w * 0.20f, h * 0.40f), size = Size(w * 0.12f, h * 0.20f))
+            drawPath(
+                path = Path().apply {
+                    moveTo(w * 0.32f, h * 0.40f)
+                    lineTo(w * 0.52f, h * 0.22f)
+                    lineTo(w * 0.52f, h * 0.78f)
+                    lineTo(w * 0.32f, h * 0.60f)
+                    close()
+                },
+                color = ChromeInk,
+            )
+            if (muted) {
+                drawLine(
+                    ChromeInk,
+                    start = Offset(w * 0.62f, h * 0.40f),
+                    end = Offset(w * 0.82f, h * 0.60f),
+                    strokeWidth = 2.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    ChromeInk,
+                    start = Offset(w * 0.82f, h * 0.40f),
+                    end = Offset(w * 0.62f, h * 0.60f),
+                    strokeWidth = 2.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
+            } else {
+                drawArc(
+                    ChromeInk,
+                    startAngle = -50f,
+                    sweepAngle = 100f,
+                    useCenter = false,
+                    topLeft = Offset(w * 0.52f, h * 0.28f),
+                    size = Size(w * 0.20f, h * 0.44f),
+                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
+                )
+                drawArc(
+                    ChromeInk,
+                    startAngle = -50f,
+                    sweepAngle = 100f,
+                    useCenter = false,
+                    topLeft = Offset(w * 0.52f, h * 0.18f),
+                    size = Size(w * 0.32f, h * 0.64f),
+                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * YouTube-style fullscreen icon: four detached corners forming a square
+ * outline. Entering fullscreen shows outward corners; while fullscreen the
+ * corners invert to point inward.
+ */
+@Composable
+internal fun FullscreenButton(
+    fullscreen: Boolean,
+    colors: OmaColors,
+    onClick: () -> Unit,
+    buttonSize: Dp = 36.dp,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Box(
+        modifier = Modifier
+            .size(buttonSize)
+            .testTag("playerFullscreenButton")
+            .semantics { contentDescription = if (fullscreen) "Exit fullscreen" else "Fullscreen" }
+            .background(if (pressed) colors.accent.copy(alpha = 0.22f) else Color.Transparent)
+            .border(1.dp, if (pressed) colors.accent else colors.muted, RectangleShape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(buttonSize)) {
+            val w = size.width
+            val h = size.height
+            drawPath(
+                path = Path().apply {
+                    if (fullscreen) {
+                        // Exit: vertices form a small inner square, arms reach
+                        // outward, so the corners point inward.
+                        val pad = 0.16f
+                        val v = 0.38f
+                        moveTo(w * v, h * pad)
+                        lineTo(w * v, h * v)
+                        lineTo(w * pad, h * v)
+                        moveTo(w * (1f - v), h * pad)
+                        lineTo(w * (1f - v), h * v)
+                        lineTo(w * (1f - pad), h * v)
+                        moveTo(w * v, h * (1f - pad))
+                        lineTo(w * v, h * (1f - v))
+                        lineTo(w * pad, h * (1f - v))
+                        moveTo(w * (1f - v), h * (1f - pad))
+                        lineTo(w * (1f - v), h * (1f - v))
+                        lineTo(w * (1f - pad), h * (1f - v))
+                    } else {
+                        // Enter: vertices sit at the outer corners, arms reach
+                        // inward along the edges.
+                        val pad = 0.26f
+                        val arm = 0.20f
+                        moveTo(w * pad, h * (pad + arm))
+                        lineTo(w * pad, h * pad)
+                        lineTo(w * (pad + arm), h * pad)
+                        moveTo(w * (1f - pad - arm), h * pad)
+                        lineTo(w * (1f - pad), h * pad)
+                        lineTo(w * (1f - pad), h * (pad + arm))
+                        moveTo(w * pad, h * (1f - pad - arm))
+                        lineTo(w * pad, h * (1f - pad))
+                        lineTo(w * (pad + arm), h * (1f - pad))
+                        moveTo(w * (1f - pad - arm), h * (1f - pad))
+                        lineTo(w * (1f - pad), h * (1f - pad))
+                        lineTo(w * (1f - pad), h * (1f - pad - arm))
+                    }
+                },
+                color = ChromeInk,
+                style = Stroke(
+                    width = 2.dp.toPx(),
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round,
+                ),
+            )
         }
     }
 }
@@ -313,60 +468,6 @@ internal fun PlayerSeekBar(
             segments = segments,
             durationMs = durationMs,
         )
-    }
-}
-
-/** Compact volume slider mirroring the desktop ninety-pixel control. */
-@Composable
-internal fun PlayerVolumeSlider(
-    volume: Int,
-    colors: OmaColors,
-    onVolume: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var dragging by remember { mutableStateOf(false) }
-    var preview by remember { mutableFloatStateOf(0f) }
-    val fraction = if (dragging) preview else (volume / 100f).coerceIn(0f, 1f)
-    val shown = if (dragging) (preview * 100f).toInt() else volume
-
-    Canvas(
-        modifier = modifier
-            .width(90.dp)
-            .height(40.dp)
-            .testTag("playerVolumeSlider")
-            .semantics {
-                progressBarRangeInfo = ProgressBarRangeInfo(
-                    current = shown.toFloat(),
-                    range = 0f..100f,
-                )
-                setProgress { target ->
-                    onVolume(target.toInt().coerceIn(0, 100))
-                    true
-                }
-            }
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { offset ->
-                        dragging = true
-                        preview = (offset.x / size.width).coerceIn(0f, 1f)
-                        onVolume((preview * 100).toInt())
-                    },
-                    onDragEnd = { dragging = false },
-                    onDragCancel = { dragging = false },
-                    onHorizontalDrag = { change, _ ->
-                        preview = (change.position.x / size.width).coerceIn(0f, 1f)
-                        onVolume((preview * 100).toInt())
-                        change.consume()
-                    },
-                )
-            }
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    onVolume(((offset.x / size.width).coerceIn(0f, 1f) * 100).toInt())
-                }
-            },
-    ) {
-        drawDesktopSlider(colors = colors, fraction = fraction, pressed = dragging)
     }
 }
 
@@ -533,6 +634,7 @@ internal fun PlayerOverlay(
 ) {
     if (state.overlay == PlayerUiState.Overlay.NONE) return
     val isError = state.overlay == PlayerUiState.Overlay.ERROR
+    val isLoading = state.overlay == PlayerUiState.Overlay.LOADING
 
     var frame by remember { mutableIntStateOf(0) }
     LaunchedEffect(state.overlay) {
@@ -545,12 +647,13 @@ internal fun PlayerOverlay(
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier
-                .width(320.dp)
+                .then(if (isLoading) Modifier.size(120.dp) else Modifier.width(320.dp))
+                .testTag("playerOverlay")
                 .background(OverlayBackground)
                 .border(1.dp, if (isError) colors.red else colors.accent, RectangleShape)
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = if (isLoading) Arrangement.Center else Arrangement.spacedBy(12.dp),
         ) {
             when (state.overlay) {
                 PlayerUiState.Overlay.LOADING -> {

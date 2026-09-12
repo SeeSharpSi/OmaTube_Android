@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -196,7 +197,6 @@ fun PlayerScreen(
                     onTogglePlay = controller::togglePlay,
                     onSeek = controller::seekTo,
                     onQuality = controller::setQuality,
-                    onVolume = controller::setVolumePercent,
                     onToggleMute = controller::toggleMute,
                     onLive = controller::seekToLiveEdge,
                     onFullscreen = {
@@ -284,7 +284,6 @@ private fun PlayerChromeLayer(
     onTogglePlay: () -> Unit,
     onSeek: (Long) -> Unit,
     onQuality: (Int) -> Unit,
-    onVolume: (Int) -> Unit,
     onToggleMute: () -> Unit,
     onLive: () -> Unit,
     onFullscreen: () -> Unit,
@@ -302,18 +301,29 @@ private fun PlayerChromeLayer(
                 onClose = onClose,
                 onQuality = onQuality,
             )
-            PlayerBottomBar(
-                state = state,
-                colors = colors,
-                compact = compact,
-                fullscreen = fullscreen,
-                onTogglePlay = onTogglePlay,
-                onSeek = onSeek,
-                onVolume = onVolume,
-                onToggleMute = onToggleMute,
-                onLive = onLive,
-                onFullscreen = onFullscreen,
-            )
+            // Portrait floats 16 dp above the phone bottom. Landscape sits
+            // flush with the bottom edge but pulls in from both sides so the
+            // bar ends clear the side edges and rounded corners, including
+            // the side that is the phone's physical bottom.
+            Box(
+                modifier = if (compact) {
+                    Modifier.padding(bottom = 16.dp)
+                } else {
+                    Modifier.padding(horizontal = 16.dp)
+                },
+            ) {
+                PlayerBottomBar(
+                    state = state,
+                    colors = colors,
+                    compact = compact,
+                    fullscreen = fullscreen,
+                    onTogglePlay = onTogglePlay,
+                    onSeek = onSeek,
+                    onToggleMute = onToggleMute,
+                    onLive = onLive,
+                    onFullscreen = onFullscreen,
+                )
+            }
         }
     }
 }
@@ -368,7 +378,6 @@ private fun PlayerBottomBar(
     fullscreen: Boolean,
     onTogglePlay: () -> Unit,
     onSeek: (Long) -> Unit,
-    onVolume: (Int) -> Unit,
     onToggleMute: () -> Unit,
     onLive: () -> Unit,
     onFullscreen: () -> Unit,
@@ -376,7 +385,7 @@ private fun PlayerBottomBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (compact) 96.dp else 64.dp)
+            .height(if (compact) 100.dp else 64.dp)
             .background(ChromeBackground)
             .border(1.dp, chromeBorder(colors), RectangleShape)
             .pointerInput(Unit) { detectTapGestures { } }
@@ -387,6 +396,15 @@ private fun PlayerBottomBar(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                PlayerSeekBar(
+                    positionMs = state.positionMs,
+                    durationMs = state.durationMs,
+                    live = state.isLive,
+                    segments = state.sponsorSegments,
+                    colors = colors,
+                    onSeek = onSeek,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
@@ -396,37 +414,20 @@ private fun PlayerBottomBar(
                     if (state.isLive) {
                         ChromeButton(text = "LIVE", colors = colors, onClick = onLive, width = 60.dp)
                     }
-                    BasicText(text = formatTime(state.positionMs / 1000f), style = timeStyle)
-                    PlayerSeekBar(
-                        positionMs = state.positionMs,
-                        durationMs = state.durationMs,
-                        live = state.isLive,
-                        segments = state.sponsorSegments,
-                        colors = colors,
-                        onSeek = onSeek,
-                        modifier = Modifier.weight(1f),
+                    BasicText(
+                        text = formatTime(state.positionMs / 1000f),
+                        style = timeStyle,
+                        modifier = Modifier.testTag("playerTimeCurrent"),
                     )
-                    BasicText(text = formatTime(state.durationMs / 1000f), style = timeStyle)
-                }
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ChromeButton(
-                        text = if (state.muted) "UNMUTE" else "MUTE",
-                        colors = colors,
-                        onClick = onToggleMute,
-                        width = 78.dp,
+                    BasicText(text = "/", style = timeStyle)
+                    BasicText(
+                        text = formatTime(state.durationMs / 1000f),
+                        style = timeStyle,
+                        modifier = Modifier.testTag("playerTimeTotal"),
                     )
-                    PlayerVolumeSlider(volume = state.volume, colors = colors, onVolume = onVolume)
                     Spacer(Modifier.weight(1f))
-                    ChromeButton(
-                        text = if (fullscreen) "EXIT" else "FULLSCREEN",
-                        colors = colors,
-                        onClick = onFullscreen,
-                        width = 110.dp,
-                    )
+                    MuteButton(muted = state.muted, colors = colors, onClick = onToggleMute)
+                    FullscreenButton(fullscreen = fullscreen, colors = colors, onClick = onFullscreen)
                 }
             }
         } else {
@@ -439,7 +440,11 @@ private fun PlayerBottomBar(
                 if (state.isLive) {
                     ChromeButton(text = "LIVE", colors = colors, onClick = onLive, width = 60.dp)
                 }
-                BasicText(text = formatTime(state.positionMs / 1000f), style = timeStyle)
+                BasicText(
+                    text = formatTime(state.positionMs / 1000f),
+                    style = timeStyle,
+                    modifier = Modifier.testTag("playerTimeCurrent"),
+                )
                 PlayerSeekBar(
                     positionMs = state.positionMs,
                     durationMs = state.durationMs,
@@ -449,20 +454,13 @@ private fun PlayerBottomBar(
                     onSeek = onSeek,
                     modifier = Modifier.weight(1f),
                 )
-                BasicText(text = formatTime(state.durationMs / 1000f), style = timeStyle)
-                ChromeButton(
-                    text = if (state.muted) "UNMUTE" else "MUTE",
-                    colors = colors,
-                    onClick = onToggleMute,
-                    width = 78.dp,
+                BasicText(
+                    text = formatTime(state.durationMs / 1000f),
+                    style = timeStyle,
+                    modifier = Modifier.testTag("playerTimeTotal"),
                 )
-                PlayerVolumeSlider(volume = state.volume, colors = colors, onVolume = onVolume)
-                ChromeButton(
-                    text = if (fullscreen) "EXIT" else "FULLSCREEN",
-                    colors = colors,
-                    onClick = onFullscreen,
-                    width = 110.dp,
-                )
+                MuteButton(muted = state.muted, colors = colors, onClick = onToggleMute)
+                FullscreenButton(fullscreen = fullscreen, colors = colors, onClick = onFullscreen)
             }
         }
     }

@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.omatube.app.player.PlaybackQuality
+import dev.omatube.app.player.PlayerUiState
 import dev.omatube.app.ui.theme.OmaColors
 import dev.omatube.app.ui.theme.OmaTheme
 import org.junit.Assert.assertEquals
@@ -81,13 +82,82 @@ class PlayerChromeTest {
     }
 
     @Test
-    fun volumeSliderExposesStableTag() {
+    fun muteButtonIsSquareIconWithoutText() {
         compose.setContent {
             OmaTheme("default") {
-                PlayerVolumeSlider(volume = 50, colors = colors, onVolume = {})
+                MuteButton(muted = false, colors = colors, onClick = {})
             }
         }
 
-        compose.onNodeWithTag("playerVolumeSlider").assertExists()
+        compose.onNodeWithTag("playerMuteButton").assertExists()
+        compose.onNodeWithText("MUTE").assertDoesNotExist()
+        compose.onNodeWithText("UNMUTE").assertDoesNotExist()
+        val size = compose.onNodeWithTag("playerMuteButton").fetchSemanticsNode().size
+        assertEquals(size.width, size.height)
+    }
+
+    @Test
+    fun fullscreenButtonIsSquareIconWithoutText() {
+        compose.setContent {
+            OmaTheme("default") {
+                FullscreenButton(fullscreen = false, colors = colors, onClick = {})
+            }
+        }
+
+        compose.onNodeWithTag("playerFullscreenButton").assertExists()
+        compose.onNodeWithText("FULLSCREEN").assertDoesNotExist()
+        compose.onNodeWithText("EXIT").assertDoesNotExist()
+        val size = compose.onNodeWithTag("playerFullscreenButton").fetchSemanticsNode().size
+        assertEquals(size.width, size.height)
+    }
+
+    @Test
+    fun fullscreenExitButtonRendersInvertedIcon() {
+        compose.setContent {
+            OmaTheme("default") {
+                FullscreenButton(fullscreen = true, colors = colors, onClick = {})
+            }
+        }
+
+        compose.onNodeWithTag("playerFullscreenButton").assertExists()
+        compose.onNodeWithText("FULLSCREEN").assertDoesNotExist()
+        compose.onNodeWithText("EXIT").assertDoesNotExist()
+    }
+
+    @Test
+    fun loadingOverlayIsSquare() {
+        compose.setContent {
+            OmaTheme("default") {
+                PlayerOverlay(
+                    state = PlayerUiState(loading = true),
+                    colors = colors,
+                    onRetry = {},
+                    onReplay = {},
+                )
+            }
+        }
+
+        val size = compose.onNodeWithTag("playerOverlay").fetchSemanticsNode().size
+        assertEquals(size.width, size.height)
+    }
+
+    @Test
+    fun errorOverlayStaysRectangle() {
+        compose.setContent {
+            OmaTheme("default") {
+                PlayerOverlay(
+                    state = PlayerUiState(loading = false, error = "boom"),
+                    colors = colors,
+                    onRetry = {},
+                    onReplay = {},
+                )
+            }
+        }
+
+        val size = compose.onNodeWithTag("playerOverlay").fetchSemanticsNode().size
+        org.junit.Assert.assertTrue(
+            "error overlay should stay wider than tall but was ${size.width}x${size.height}",
+            size.width > size.height,
+        )
     }
 }
