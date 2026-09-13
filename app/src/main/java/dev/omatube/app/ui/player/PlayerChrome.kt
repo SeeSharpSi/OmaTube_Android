@@ -12,7 +12,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -47,6 +45,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -72,7 +71,6 @@ import dev.omatube.app.player.SponsorBlockLogic
 import dev.omatube.app.ui.theme.OmaColors
 import dev.omatube.app.ui.theme.OmaTypography
 import kotlinx.coroutines.delay
-import kotlin.math.roundToInt
 
 internal val ChromeBackground = Color(0.02f, 0.02f, 0.02f, 0.82f)
 internal val OverlayBackground = Color(0.02f, 0.02f, 0.02f, 0.88f)
@@ -147,6 +145,27 @@ internal fun ChromeButton(
 
 /** Desktop play/pause glyph drawn with a canvas, not an icon font. */
 @Composable
+internal fun PlayPauseGlyph(playing: Boolean, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        if (playing) {
+            drawRect(ChromeInk, topLeft = Offset(size.width * 0.32f, size.height * 0.24f), size = Size(size.width * 0.13f, size.height * 0.52f))
+            drawRect(ChromeInk, topLeft = Offset(size.width * 0.57f, size.height * 0.24f), size = Size(size.width * 0.13f, size.height * 0.52f))
+        } else {
+            drawPath(
+                path = Path().apply {
+                    moveTo(size.width * 0.30f, size.height * 0.22f)
+                    lineTo(size.width * 0.30f, size.height * 0.78f)
+                    lineTo(size.width * 0.76f, size.height * 0.50f)
+                    close()
+                },
+                color = ChromeInk,
+            )
+        }
+    }
+}
+
+/** Square play/pause button used in the bottom bar. */
+@Composable
 internal fun PlayPauseButton(
     playing: Boolean,
     colors: OmaColors,
@@ -165,22 +184,7 @@ internal fun PlayPauseButton(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(buttonSize)) {
-            if (playing) {
-                drawRect(ChromeInk, topLeft = Offset(size.width * 0.32f, size.height * 0.24f), size = Size(size.width * 0.13f, size.height * 0.52f))
-                drawRect(ChromeInk, topLeft = Offset(size.width * 0.57f, size.height * 0.24f), size = Size(size.width * 0.13f, size.height * 0.52f))
-            } else {
-                drawPath(
-                    path = Path().apply {
-                        moveTo(size.width * 0.30f, size.height * 0.22f)
-                        lineTo(size.width * 0.30f, size.height * 0.78f)
-                        lineTo(size.width * 0.76f, size.height * 0.50f)
-                        close()
-                    },
-                    color = ChromeInk,
-                )
-            }
-        }
+        PlayPauseGlyph(playing = playing, modifier = Modifier.size(buttonSize))
     }
 }
 
@@ -416,10 +420,12 @@ internal fun PlayerSeekBar(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
     onScrubbingChange: (Boolean) -> Unit = {},
+    onScrubPreviewChange: (Long?) -> Unit = {},
 ) {
     var dragging by remember { mutableStateOf(false) }
     var previewFraction by remember { mutableFloatStateOf(0f) }
     val currentOnScrubbingChange = rememberUpdatedState(onScrubbingChange)
+    val currentOnScrubPreviewChange = rememberUpdatedState(onScrubPreviewChange)
     val enabled = durationMs > 0L
     val playbackFraction = if (durationMs > 0L) {
         (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
@@ -429,15 +435,11 @@ internal fun PlayerSeekBar(
     val fraction = if (dragging) previewFraction else playbackFraction
     val shownMs = if (dragging) (previewFraction * durationMs).toLong() else positionMs
 
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .height(40.dp),
     ) {
-        val density = LocalDensity.current
-        val textMeasurer = rememberTextMeasurer()
-        val widthPx = constraints.maxWidth.toFloat()
-
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -460,14 +462,20 @@ internal fun PlayerSeekBar(
                         onDragStart = { offset ->
                             dragging = true
                             previewFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                            currentOnScrubPreviewChange.value((previewFraction * durationMs).toLong())
                         },
                         onDragEnd = {
                             dragging = false
+                            currentOnScrubPreviewChange.value(null)
                             onSeek((previewFraction * durationMs).toLong())
                         },
-                        onDragCancel = { dragging = false },
+                        onDragCancel = {
+                            dragging = false
+                            currentOnScrubPreviewChange.value(null)
+                        },
                         onHorizontalDrag = { change, _ ->
                             previewFraction = (change.position.x / size.width).coerceIn(0f, 1f)
+                            currentOnScrubPreviewChange.value((previewFraction * durationMs).toLong())
                             change.consume()
                         },
                     )
@@ -511,25 +519,6 @@ internal fun PlayerSeekBar(
                 pressed = dragging,
                 segments = segments,
                 durationMs = durationMs,
-            )
-        }
-
-        if (dragging) {
-            val labelText = formatTime(shownMs / 1000f)
-            val textWidthPx = textMeasurer.measure(AnnotatedString(labelText), timeStyle).size.width.toFloat()
-            val padPx = with(density) { 4.dp.toPx() }
-            val labelWidthPx = textWidthPx + padPx * 2f
-            val left = (fraction * widthPx - labelWidthPx / 2f)
-                .coerceIn(0f, (widthPx - labelWidthPx).coerceAtLeast(0f))
-            BasicText(
-                text = labelText,
-                style = timeStyle,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .offset { IntOffset(left.roundToInt(), 0) }
-                    .background(ChromeBackground)
-                    .padding(horizontal = 4.dp)
-                    .testTag("playerSeekScrubLabel"),
             )
         }
     }
@@ -687,7 +676,7 @@ internal fun SponsorSkipButton(
     }
 }
 
-/** Loading / error / ended overlay matching `PlayerControls.qml`. */
+/** Error / ended overlay matching `PlayerControls.qml`. */
 @Composable
 internal fun PlayerOverlay(
     state: PlayerUiState,
@@ -696,36 +685,23 @@ internal fun PlayerOverlay(
     onReplay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (state.overlay == PlayerUiState.Overlay.NONE) return
-    val isError = state.overlay == PlayerUiState.Overlay.ERROR
-    val isLoading = state.overlay == PlayerUiState.Overlay.LOADING
-
-    var frame by remember { mutableIntStateOf(0) }
-    LaunchedEffect(state.overlay) {
-        while (state.overlay == PlayerUiState.Overlay.LOADING) {
-            delay(120L)
-            frame = (frame + 1) % SPINNER_FRAMES.size
-        }
+    if (state.overlay != PlayerUiState.Overlay.ERROR && state.overlay != PlayerUiState.Overlay.ENDED) {
+        return
     }
+    val isError = state.overlay == PlayerUiState.Overlay.ERROR
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier
-                .then(if (isLoading) Modifier.size(80.dp) else Modifier.width(320.dp))
+                .width(320.dp)
                 .testTag("playerOverlay")
                 .background(OverlayBackground)
                 .border(1.dp, if (isError) colors.red else colors.accent, RectangleShape)
-                .padding(if (isLoading) 12.dp else 24.dp),
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = if (isLoading) Arrangement.Center else Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             when (state.overlay) {
-                PlayerUiState.Overlay.LOADING -> {
-                    BasicText(
-                        text = SPINNER_FRAMES[frame],
-                        style = TextStyle(color = ChromeInk, fontFamily = Mono, fontSize = 34.sp, textAlign = TextAlign.Center),
-                    )
-                }
                 PlayerUiState.Overlay.ERROR -> {
                     BasicText(
                         text = state.error ?: "Playback error",
@@ -751,9 +727,111 @@ internal fun PlayerOverlay(
                         weight = FontWeight.SemiBold,
                     )
                 }
-                PlayerUiState.Overlay.NONE -> Unit
+                PlayerUiState.Overlay.LOADING,
+                PlayerUiState.Overlay.NONE,
+                -> Unit
             }
         }
+    }
+}
+
+/**
+ * Center transport and loading surface. Loading is shown even when the chrome
+ * is hidden; the play/pause control only appears in the normal state while the
+ * chrome is visible. Error and ended panels stay in [PlayerOverlay].
+ */
+@Composable
+internal fun PlayerCenterOverlay(
+    state: PlayerUiState,
+    colors: OmaColors,
+    chromeVisible: Boolean,
+    onTogglePlay: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (state.overlay) {
+        PlayerUiState.Overlay.LOADING -> {
+            Box(modifier = modifier, contentAlignment = Alignment.Center) {
+                LoadingFrame(colors = colors)
+            }
+        }
+        PlayerUiState.Overlay.NONE -> {
+            if (chromeVisible) {
+                Box(modifier = modifier, contentAlignment = Alignment.Center) {
+                    CenterPlayPauseButton(
+                        playing = state.playing,
+                        colors = colors,
+                        onClick = onTogglePlay,
+                    )
+                }
+            }
+        }
+        PlayerUiState.Overlay.ERROR,
+        PlayerUiState.Overlay.ENDED,
+        -> Unit
+    }
+}
+
+/**
+ * Shared 80 dp frame with the overlay background and accent border, used by the
+ * loading spinner and the centered play/pause control so their geometry matches.
+ */
+@Composable
+private fun OverlayFrame(
+    colors: OmaColors,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .size(80.dp)
+            .background(OverlayBackground)
+            .border(1.dp, colors.accent, RectangleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
+    }
+}
+
+/** Animated loading spinner inside the shared frame. */
+@Composable
+private fun LoadingFrame(colors: OmaColors) {
+    var frame by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(120L)
+            frame = (frame + 1) % SPINNER_FRAMES.size
+        }
+    }
+    OverlayFrame(
+        colors = colors,
+        modifier = Modifier.testTag("playerOverlay"),
+    ) {
+        BasicText(
+            text = SPINNER_FRAMES[frame],
+            style = TextStyle(color = ChromeInk, fontFamily = Mono, fontSize = 34.sp, textAlign = TextAlign.Center),
+        )
+    }
+}
+
+/** Centered play/pause control with the bottom-left glyph geometry. */
+@Composable
+private fun CenterPlayPauseButton(
+    playing: Boolean,
+    colors: OmaColors,
+    onClick: () -> Unit,
+) {
+    OverlayFrame(
+        colors = colors,
+        modifier = Modifier
+            .testTag("playerCenterPlayPauseButton")
+            .semantics { contentDescription = if (playing) "Center pause" else "Center play" }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+    ) {
+        PlayPauseGlyph(playing = playing, modifier = Modifier.size(40.dp))
     }
 }
 

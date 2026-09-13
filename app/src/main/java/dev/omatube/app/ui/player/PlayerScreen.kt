@@ -28,8 +28,10 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.text.BasicText
@@ -47,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -54,6 +58,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -65,6 +70,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import dev.omatube.app.backend.VideoBackend
 import dev.omatube.app.model.Settings
@@ -73,8 +79,10 @@ import dev.omatube.app.player.PlayerController
 import dev.omatube.app.player.PlayerUiState
 import dev.omatube.app.ui.theme.OmaColors
 import dev.omatube.app.ui.theme.OmaTypography
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Full-screen player with Media3 rendering behind custom Compose Foundation
@@ -124,7 +132,11 @@ fun PlayerScreen(
 
     val state by controller.uiState.collectAsState()
     val colors = remember(settings.themeId) { OmaColors.forTheme(settings.themeId) }
-    val fullscreen = remember { mutableStateOf(false) }
+    val configuration = LocalConfiguration.current
+    // Portrait behaviour is keyed on the physical orientation, never on compact
+    // width; compact still chooses the bottom-bar contents and height.
+    val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     LaunchedEffect(state.playing) { currentOnPlayingChanged.value(state.playing) }
     DisposableEffect(Unit) {
@@ -161,90 +173,184 @@ fun PlayerScreen(
         ).toDp()
     }
 
+    val handleScrubbingChange: (Boolean) -> Unit = { active ->
+        scrubbing = active
+        seekInteraction += 1
+        if (active) {
+            chromeVisible = true
+        }
+    }
+    // Fullscreen is derived from the physical/config orientation, so a rotation
+    // immediately flips the icon; the button only requests the opposite
+    // orientation and never stores its own fullscreen flag.
+    val onFullscreen: () -> Unit = {
+        activity?.requestedOrientation = if (isLandscape) {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(androidx.compose.ui.graphics.Color.Black),
     ) {
-        PlayerSurface(
-            controller = controller,
-            automation = automation,
-            videoId = video.id,
-            modifier = Modifier.fillMaxSize(),
-        )
+        // Landscape keeps the full-bleed surface. Portrait instead lays the
+        // surface out inside the safe container so the reserved bars can sit
+        // flush against the video viewport.
+        if (isLandscape) {
+            PlayerSurface(
+                controller = controller,
+                automation = automation,
+                videoId = video.id,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         // Tap toggles the chrome; holding boosts to 2x and releasing or
-        // cancelling the gesture restores the normal speed.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = {
-                            var boosted = false
-                            val boostJob = scope.launch {
-                                delay(HOLD_TO_BOOST_MS)
-                                boosted = true
-                                controller.setSpeed(2f)
-                            }
-                            val released = tryAwaitRelease()
-                            boostJob.cancel()
-                            if (boosted) {
-                                controller.setSpeed(1f)
-                            } else if (released) {
-                                chromeVisible = !chromeVisible
-                            }
-                        },
-                    )
-                },
-        )
+        // cancelling the gesture restores the normal speed. Landscape uses a
+        // full-window layer; portrait adds its own layer above the inset video
+        // so taps on the letterboxed surface still reach it.
+        if (!isPortrait) {
+            PlayerGestureLayer(
+                controller = controller,
+                scope = scope,
+                onToggleChrome = { chromeVisible = !chromeVisible },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         // Controls live in their own container inset for the display cutout, so
         // the top bar and sponsor box stay clear of notches/camera cutouts in
-        // immersive landscape. The video surface above is intentionally not
-        // inset and keeps filling the whole window. Only displayCutout is
-        // applied, never safeDrawing/systemBars, so the hidden status bar
-        // cannot double-inset the chrome. The cutout contributes only its
-        // vertical sides here; the larger of the left/right insets is mirrored
-        // as horizontal padding so both chrome edges clear a corner cutout.
-        Box(
+        // immersive landscape. Portrait reuses the same container for the
+        // surface and the chrome so the stack is centered inside the safe area.
+        // Only displayCutout is applied, never safeDrawing/systemBars, so the
+        // hidden status bar cannot double-inset the chrome. The cutout
+        // contributes only its vertical sides here; the larger of the left/right
+        // insets is mirrored as horizontal padding so both chrome edges clear a
+        // corner cutout.
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Vertical))
                 .padding(horizontal = cutoutHorizontal),
         ) {
-            if (chromeVisible) {
-                PlayerChromeLayer(
-                    state = state,
-                    colors = colors,
-                    fullscreen = fullscreen.value,
-                    onClose = onClose,
-                    onTogglePlay = controller::togglePlay,
-                    onSeek = controller::seekTo,
-                    onScrubbingChange = { active ->
-                        scrubbing = active
-                        seekInteraction += 1
-                        if (active) {
-                            chromeVisible = true
-                        }
+            val compact = maxWidth < COMPACT_WIDTH
+            val portraitGeometry = if (isPortrait) {
+                computePortraitStackGeometry(
+                    containerWidth = constraints.maxWidth.toFloat(),
+                    containerHeight = constraints.maxHeight.toFloat(),
+                    videoAspect = state.videoAspectRatio ?: DEFAULT_VIDEO_ASPECT,
+                    topSlotHeight = with(density) { TOP_BAR_HEIGHT.toPx() },
+                    bottomSlotHeight = with(density) {
+                        (if (compact) COMPACT_BOTTOM_HEIGHT else WIDE_BOTTOM_HEIGHT).toPx()
                     },
-                    onQuality = controller::setQuality,
-                    onToggleMute = controller::toggleMute,
-                    onLive = controller::seekToLiveEdge,
-                    onFullscreen = {
-                        activity?.let { owner ->
-                            val landscape = owner.resources.configuration.orientation ==
-                                Configuration.ORIENTATION_LANDSCAPE
-                            owner.requestedOrientation = if (landscape) {
-                                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                            } else {
-                                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                            }
-                            fullscreen.value = !landscape
-                        }
-                    },
+                )
+            } else {
+                null
+            }
+
+            if (portraitGeometry != null) {
+                val videoModifier = Modifier
+                    .offset {
+                        IntOffset(
+                            portraitGeometry.videoLeft.roundToInt(),
+                            portraitGeometry.videoTop.roundToInt(),
+                        )
+                    }
+                    .size(
+                        width = with(density) { portraitGeometry.videoWidth.toDp() },
+                        height = with(density) { portraitGeometry.videoHeight.toDp() },
+                    )
+                PlayerSurface(
+                    controller = controller,
+                    automation = automation,
+                    videoId = video.id,
+                    modifier = videoModifier,
+                )
+
+                // Above the inset surface but below the bars so the bars keep
+                // first refusal on their own taps.
+                PlayerGestureLayer(
+                    controller = controller,
+                    scope = scope,
+                    onToggleChrome = { chromeVisible = !chromeVisible },
                     modifier = Modifier.fillMaxSize(),
                 )
+
+                // The reserved slots keep their height when the chrome is
+                // hidden, so the video never resizes or jumps.
+                if (chromeVisible) {
+                    Box(
+                        modifier = Modifier.offset {
+                            IntOffset(0, portraitGeometry.topSlotTop.roundToInt())
+                        },
+                    ) {
+                        PlayerTopBar(
+                            state = state,
+                            colors = colors,
+                            onClose = onClose,
+                            onQuality = controller::setQuality,
+                        )
+                    }
+                    Box(
+                        modifier = Modifier.offset {
+                            IntOffset(0, portraitGeometry.bottomSlotTop.roundToInt())
+                        },
+                    ) {
+                        PlayerBottomBar(
+                            state = state,
+                            colors = colors,
+                            compact = compact,
+                            fullscreen = isLandscape,
+                            onTogglePlay = controller::togglePlay,
+                            onSeek = controller::seekTo,
+                            onScrubbingChange = handleScrubbingChange,
+                            onToggleMute = controller::toggleMute,
+                            onLive = controller::seekToLiveEdge,
+                            onFullscreen = onFullscreen,
+                        )
+                    }
+                }
+
+                PlayerCenterOverlay(
+                    state = state,
+                    colors = colors,
+                    chromeVisible = chromeVisible,
+                    onTogglePlay = controller::togglePlay,
+                    modifier = videoModifier,
+                )
+            } else {
+                if (chromeVisible) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        PlayerTopBar(
+                            state = state,
+                            colors = colors,
+                            onClose = onClose,
+                            onQuality = controller::setQuality,
+                        )
+                        // Landscape pulls the bottom bar in from both sides so
+                        // its ends clear the side edges and rounded corners.
+                        Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                            PlayerBottomBar(
+                                state = state,
+                                colors = colors,
+                                compact = compact,
+                                fullscreen = isLandscape,
+                                onTogglePlay = controller::togglePlay,
+                                onSeek = controller::seekTo,
+                                onScrubbingChange = handleScrubbingChange,
+                                onToggleMute = controller::toggleMute,
+                                onLive = controller::seekToLiveEdge,
+                                onFullscreen = onFullscreen,
+                            )
+                        }
+                    }
+                }
             }
 
             state.manualSegment?.let { segment ->
@@ -259,6 +365,18 @@ fun PlayerScreen(
                         .padding(end = 16.dp, bottom = 110.dp),
                 )
             }
+        }
+
+        // In landscape the center transport and loading frame stay anchored to
+        // the whole window; portrait anchors them to the video viewport above.
+        if (!isPortrait) {
+            PlayerCenterOverlay(
+                state = state,
+                colors = colors,
+                chromeVisible = chromeVisible,
+                onTogglePlay = controller::togglePlay,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         if (chromeVisible) {
@@ -283,7 +401,7 @@ private fun PlayerSurface(
 ) {
     val player = controller.player
     if (automation || player == null) {
-        Box(modifier, contentAlignment = Alignment.Center) {
+        Box(modifier.testTag("playerVideoSurface"), contentAlignment = Alignment.Center) {
             BasicText(
                 text = "Automation player $videoId",
                 style = TextStyle(
@@ -299,67 +417,48 @@ private fun PlayerSurface(
                 PlayerView(context).apply {
                     useController = false
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
+                    // The portrait stack assumes a letterboxed FIT surface.
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 }
             },
             update = { view -> view.player = player },
-            modifier = modifier,
+            modifier = modifier.testTag("playerVideoSurface"),
         )
     }
 }
 
+/**
+ * Tap surface for the player. A tap toggles the chrome, a hold boosts to 2x
+ * and releasing or cancelling restores the normal speed.
+ */
 @Composable
-private fun PlayerChromeLayer(
-    state: PlayerUiState,
-    colors: OmaColors,
-    fullscreen: Boolean,
-    onClose: () -> Unit,
-    onTogglePlay: () -> Unit,
-    onSeek: (Long) -> Unit,
-    onScrubbingChange: (Boolean) -> Unit,
-    onQuality: (Int) -> Unit,
-    onToggleMute: () -> Unit,
-    onLive: () -> Unit,
-    onFullscreen: () -> Unit,
+private fun PlayerGestureLayer(
+    controller: PlayerController,
+    scope: CoroutineScope,
+    onToggleChrome: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    BoxWithConstraints(modifier) {
-        val compact = maxWidth < COMPACT_WIDTH
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            PlayerTopBar(
-                state = state,
-                colors = colors,
-                onClose = onClose,
-                onQuality = onQuality,
-            )
-            // Portrait floats 16 dp above the phone bottom. Landscape sits
-            // flush with the bottom edge but pulls in from both sides so the
-            // bar ends clear the side edges and rounded corners, including
-            // the side that is the phone's physical bottom.
-            Box(
-                modifier = if (compact) {
-                    Modifier.padding(bottom = 16.dp)
-                } else {
-                    Modifier.padding(horizontal = 16.dp)
+    Box(
+        modifier = modifier.pointerInput(Unit) {
+            detectTapGestures(
+                onPress = {
+                    var boosted = false
+                    val boostJob = scope.launch {
+                        delay(HOLD_TO_BOOST_MS)
+                        boosted = true
+                        controller.setSpeed(2f)
+                    }
+                    val released = tryAwaitRelease()
+                    boostJob.cancel()
+                    if (boosted) {
+                        controller.setSpeed(1f)
+                    } else if (released) {
+                        onToggleChrome()
+                    }
                 },
-            ) {
-                PlayerBottomBar(
-                    state = state,
-                    colors = colors,
-                    compact = compact,
-                    fullscreen = fullscreen,
-                    onTogglePlay = onTogglePlay,
-                    onSeek = onSeek,
-                    onScrubbingChange = onScrubbingChange,
-                    onToggleMute = onToggleMute,
-                    onLive = onLive,
-                    onFullscreen = onFullscreen,
-                )
-            }
-        }
-    }
+            )
+        },
+    )
 }
 
 @Composable
@@ -372,7 +471,8 @@ private fun PlayerTopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(TOP_BAR_HEIGHT)
+            .testTag("playerTopBar")
             .background(ChromeBackground)
             .border(1.dp, chromeBorder(colors), RectangleShape)
             .pointerInput(Unit) { detectTapGestures { } }
@@ -405,7 +505,7 @@ private fun PlayerTopBar(
 }
 
 @Composable
-private fun PlayerBottomBar(
+internal fun PlayerBottomBar(
     state: PlayerUiState,
     colors: OmaColors,
     compact: Boolean,
@@ -416,35 +516,68 @@ private fun PlayerBottomBar(
     onToggleMute: () -> Unit,
     onLive: () -> Unit,
     onFullscreen: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(if (compact) 100.dp else 64.dp)
-            .background(ChromeBackground)
-            .border(1.dp, chromeBorder(colors), RectangleShape)
-            .pointerInput(Unit) { detectTapGestures { } }
-            .padding(8.dp),
-    ) {
-        if (compact) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                PlayerSeekBar(
-                    positionMs = state.positionMs,
-                    durationMs = state.durationMs,
-                    live = state.isLive,
-                    segments = state.sponsorSegments,
-                    colors = colors,
-                    onSeek = onSeek,
-                    modifier = Modifier.fillMaxWidth(),
-                    onScrubbingChange = onScrubbingChange,
-                )
+    // Owned here and drawn as a sibling above the bar, centered over the whole
+    // control rectangle, so it never follows the seek handle inside the row.
+    var scrubPreviewMs by remember { mutableStateOf<Long?>(null) }
+    Box(modifier = modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (compact) COMPACT_BOTTOM_HEIGHT else WIDE_BOTTOM_HEIGHT)
+                .testTag("playerBottomBar")
+                .background(ChromeBackground)
+                .border(1.dp, chromeBorder(colors), RectangleShape)
+                .pointerInput(Unit) { detectTapGestures { } }
+                .padding(8.dp),
+        ) {
+            if (compact) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    PlayerSeekBar(
+                        positionMs = state.positionMs,
+                        durationMs = state.durationMs,
+                        live = state.isLive,
+                        segments = state.sponsorSegments,
+                        colors = colors,
+                        onSeek = onSeek,
+                        modifier = Modifier.fillMaxWidth(),
+                        onScrubbingChange = onScrubbingChange,
+                        onScrubPreviewChange = { scrubPreviewMs = it },
+                    )
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PlayPauseButton(playing = state.playing, colors = colors, onClick = onTogglePlay)
+                        if (state.isLive) {
+                            ChromeButton(text = "LIVE", colors = colors, onClick = onLive, width = 60.dp)
+                        }
+                        BasicText(
+                            text = formatTime(state.positionMs / 1000f),
+                            style = timeStyle,
+                            modifier = Modifier.testTag("playerTimeCurrent"),
+                        )
+                        BasicText(text = "/", style = timeStyle)
+                        BasicText(
+                            text = formatTime(state.durationMs / 1000f),
+                            style = timeStyle,
+                            modifier = Modifier.testTag("playerTimeTotal"),
+                        )
+                        Spacer(Modifier.weight(1f))
+                        MuteButton(muted = state.muted, colors = colors, onClick = onToggleMute)
+                        FullscreenButton(fullscreen = fullscreen, colors = colors, onClick = onFullscreen)
+                    }
+                }
+            } else {
                 Row(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxSize(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     PlayPauseButton(playing = state.playing, colors = colors, onClick = onTogglePlay)
                     if (state.isLive) {
@@ -455,52 +588,62 @@ private fun PlayerBottomBar(
                         style = timeStyle,
                         modifier = Modifier.testTag("playerTimeCurrent"),
                     )
-                    BasicText(text = "/", style = timeStyle)
+                    PlayerSeekBar(
+                        positionMs = state.positionMs,
+                        durationMs = state.durationMs,
+                        live = state.isLive,
+                        segments = state.sponsorSegments,
+                        colors = colors,
+                        onSeek = onSeek,
+                        modifier = Modifier.weight(1f),
+                        onScrubbingChange = onScrubbingChange,
+                        onScrubPreviewChange = { scrubPreviewMs = it },
+                    )
                     BasicText(
                         text = formatTime(state.durationMs / 1000f),
                         style = timeStyle,
                         modifier = Modifier.testTag("playerTimeTotal"),
                     )
-                    Spacer(Modifier.weight(1f))
                     MuteButton(muted = state.muted, colors = colors, onClick = onToggleMute)
                     FullscreenButton(fullscreen = fullscreen, colors = colors, onClick = onFullscreen)
                 }
             }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                PlayPauseButton(playing = state.playing, colors = colors, onClick = onTogglePlay)
-                if (state.isLive) {
-                    ChromeButton(text = "LIVE", colors = colors, onClick = onLive, width = 60.dp)
-                }
-                BasicText(
-                    text = formatTime(state.positionMs / 1000f),
-                    style = timeStyle,
-                    modifier = Modifier.testTag("playerTimeCurrent"),
-                )
-                PlayerSeekBar(
-                    positionMs = state.positionMs,
-                    durationMs = state.durationMs,
-                    live = state.isLive,
-                    segments = state.sponsorSegments,
-                    colors = colors,
-                    onSeek = onSeek,
-                    modifier = Modifier.weight(1f),
-                    onScrubbingChange = onScrubbingChange,
-                )
-                BasicText(
-                    text = formatTime(state.durationMs / 1000f),
-                    style = timeStyle,
-                    modifier = Modifier.testTag("playerTimeTotal"),
-                )
-                MuteButton(muted = state.muted, colors = colors, onClick = onToggleMute)
-                FullscreenButton(fullscreen = fullscreen, colors = colors, onClick = onFullscreen)
-            }
+        }
+
+        scrubPreviewMs?.let { previewMs ->
+            ScrubPreviewLabel(
+                text = formatTime(previewMs / 1000f),
+                colors = colors,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
         }
     }
+}
+
+/**
+ * Timestamp bubble shown while a scrub drag is active. It is a sibling of the
+ * bar so it can overflow upward, with its bottom edge 8 dp above the bar top.
+ */
+@Composable
+private fun ScrubPreviewLabel(
+    text: String,
+    colors: OmaColors,
+    modifier: Modifier = Modifier,
+) {
+    val labelDensity = LocalDensity.current
+    val gapPx = with(labelDensity) { 8.dp.toPx() }
+    var labelHeightPx by remember { mutableIntStateOf(0) }
+    BasicText(
+        text = text,
+        style = timeStyle,
+        modifier = modifier
+            .offset { IntOffset(0, -labelHeightPx - gapPx.roundToInt()) }
+            .onSizeChanged { labelHeightPx = it.height }
+            .background(ChromeBackground)
+            .border(1.dp, colors.accent, RectangleShape)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .testTag("playerSeekScrubLabel"),
+    )
 }
 
 @Composable
@@ -593,3 +736,66 @@ private fun PlayerLifecycleEffects(activity: Activity?, controller: PlayerContro
 private const val CHROME_IDLE_MS = 3_000L
 private const val HOLD_TO_BOOST_MS = 400L
 private val COMPACT_WIDTH = 600.dp
+private val TOP_BAR_HEIGHT = 52.dp
+private val COMPACT_BOTTOM_HEIGHT = 100.dp
+private val WIDE_BOTTOM_HEIGHT = 64.dp
+private val DEFAULT_VIDEO_ASPECT = 16f / 9f
+
+/**
+ * Absolute stack geometry for the portrait player, in pixels relative to the
+ * display-cutout-safe container. The video is aspect-fitted and centered, then
+ * the whole stack (top slot, video, bottom slot) is centered vertically. The
+ * bars keep the full container width and sit flush against the video edges.
+ */
+internal data class PortraitStackGeometry(
+    val topSlotTop: Float,
+    val bottomSlotTop: Float,
+    val videoLeft: Float,
+    val videoTop: Float,
+    val videoWidth: Float,
+    val videoHeight: Float,
+)
+
+/**
+ * Pure portrait layout solver. Invalid or non-positive input is neutralized:
+ * a bad aspect falls back to 16:9 and every returned dimension is non-negative.
+ */
+internal fun computePortraitStackGeometry(
+    containerWidth: Float,
+    containerHeight: Float,
+    videoAspect: Float,
+    topSlotHeight: Float,
+    bottomSlotHeight: Float,
+): PortraitStackGeometry {
+    val safeWidth = sanitizeDimension(containerWidth)
+    val safeHeight = sanitizeDimension(containerHeight)
+    val aspect = if (videoAspect.isFinite() && videoAspect > 0f) videoAspect else DEFAULT_VIDEO_ASPECT
+    val topSlot = sanitizeDimension(topSlotHeight)
+    val bottomSlot = sanitizeDimension(bottomSlotHeight)
+
+    val videoAreaHeight = (safeHeight - topSlot - bottomSlot).coerceAtLeast(0f)
+    var videoWidth = safeWidth
+    var videoHeight = videoWidth / aspect
+    if (videoHeight > videoAreaHeight) {
+        videoHeight = videoAreaHeight
+        videoWidth = videoHeight * aspect
+    }
+    videoWidth = sanitizeDimension(videoWidth).coerceAtMost(safeWidth)
+    videoHeight = sanitizeDimension(videoHeight)
+
+    val stackHeight = topSlot + videoHeight + bottomSlot
+    val stackTop = ((safeHeight - stackHeight) / 2f).coerceAtLeast(0f)
+    val videoTop = stackTop + topSlot
+    val videoLeft = ((safeWidth - videoWidth) / 2f).coerceAtLeast(0f)
+    return PortraitStackGeometry(
+        topSlotTop = stackTop,
+        bottomSlotTop = videoTop + videoHeight,
+        videoLeft = videoLeft,
+        videoTop = videoTop,
+        videoWidth = videoWidth,
+        videoHeight = videoHeight,
+    )
+}
+
+private fun sanitizeDimension(value: Float): Float =
+    if (value.isFinite()) value.coerceAtLeast(0f) else 0f

@@ -193,23 +193,25 @@ PY
 }
 
 # Visual check that the desktop seek handle is square. The player chrome is
-# paused when this runs. The band matches the current compact portrait chrome
-# (seek row ~2110-2210 with the 16 dp bottom lift). It excludes the bottom
-# bar's top accent border, which would otherwise merge with the track into a
-# full-width detection, and spans the bar's full width so the handle is found
-# at any playback position. (There is no in-app volume slider; volume is left
-# to the phone buttons, so only the seek handle is checked.) A layout change
-# surfaces as a failed detection rather than being silently skipped.
+# paused when this runs. The band is derived from the accessibility SeekBar
+# bounds rather than a fixed y: the probe scans a window around the live seek
+# row, excluding the bottom bar's accent border, and spans the bar's full width
+# so the handle is found at any playback position. (There is no in-app volume
+# slider; volume is left to the phone buttons, so only the seek handle is
+# checked.) A layout change surfaces as a failed detection rather than being
+# silently skipped.
+# assert_square_handles <png> <x1> <x2> <y1> <y2>
 assert_square_handles() {
-  local png="$1" out name w h
+  local png="$1" x1="$2" x2="$3" y1="$4" y2="$5" out name w h
   if ! python3 -c "import PIL" >/dev/null 2>&1; then
     say "SKIP square-handle visual check (PIL unavailable)"
     return 0
   fi
-  out="$(python3 - "$png" <<'PY'
+  out="$(python3 - "$png" "$x1" "$x2" "$y1" "$y2" <<'PY'
 import sys
 from PIL import Image
 im = Image.open(sys.argv[1]).convert("RGB"); px = im.load()
+x1, x2, y1, y2 = map(int, sys.argv[2:6])
 def ink(p): return sum(p) > 45
 def probe(x1, x2, y1, y2):
     tall = []
@@ -222,7 +224,7 @@ def probe(x1, x2, y1, y2):
     w = tall[-1][0] - tall[0][0] + 1
     h = max(a[2] for a in tall) - min(a[1] for a in tall) + 1
     return w, h
-for name, box in (("seek", (21, 1059, 2110, 2210)),):
+for name, box in (("seek", (x1, x2, y1, y2)),):
     r = probe(*box)
     print(name, "none" if r is None else f"{r[0]} {r[1]}")
 PY
@@ -456,7 +458,11 @@ else
   say "FAIL player seek bar not exposed to accessibility"
 fi
 snap full-player-seek
-assert_square_handles "$OUT/full-player-chrome.png"
+# Probe a band around the live seek row, derived from the accessibility bounds,
+# instead of the old fixed portrait coordinates.
+if [ -n "$SEEK_GEOM" ]; then
+  assert_square_handles "$OUT/full-player-seek.png" "$SEEK_X1" "$SEEK_X2" "$((SEEK_CY - 25))" "$((SEEK_CY + 25))"
+fi
 
 # Quality picker: natural casing and dynamic geometry. The selector is located
 # by its mixed-case label; the popup row is measured from a screenshot because a
@@ -575,6 +581,20 @@ if file -b "$OUT/full-player-landscape.png" | grep -q "2400 x 1080"; then
 else
   say "FAIL player landscape size"
 fi
+# The fullscreen icon is derived from the physical orientation, so the content
+# description must flip to the exit state right after the rotation. The chrome
+# may have auto-hidden; tap a neutral center point to bring it back if needed.
+dump_ui
+if ! node_present content-desc "Exit fullscreen" && ! node_present content-desc "Fullscreen"; then
+  adb shell input tap 1200 540
+  sleep 1
+  dump_ui
+fi
+if node_present content-desc "Exit fullscreen"; then
+  say "PASS landscape fullscreen content description is Exit fullscreen"
+else
+  say "FAIL landscape fullscreen content description"
+fi
 adb shell settings put system user_rotation 0 >/dev/null 2>&1
 sleep 1.5
 snap full-player-portrait-again
@@ -582,6 +602,17 @@ if file -b "$OUT/full-player-portrait-again.png" | grep -q "1080 x 2400"; then
   say "PASS player rotation landscape -> portrait"
 else
   say "FAIL player portrait size"
+fi
+dump_ui
+if ! node_present content-desc "Fullscreen" && ! node_present content-desc "Exit fullscreen"; then
+  adb shell input tap 540 1200
+  sleep 1
+  dump_ui
+fi
+if node_present content-desc "Fullscreen"; then
+  say "PASS portrait fullscreen content description is Fullscreen"
+else
+  say "FAIL portrait fullscreen content description"
 fi
 
 # ---------------------------------------------------------------------------

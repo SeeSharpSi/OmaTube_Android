@@ -18,9 +18,12 @@ license locations.
 - Bundled JetBrains Mono Nerd Font and Liberation Sans faces, matching the fonts
   the desktop build resolves on its host.
 - Custom player chrome with seek, play/pause, mute, volume, speed, fullscreen,
-  a per-video quality override and a global preferred maximum height. The
-  controls stay visible while touching or seeking, and dragging the seek bar
-  shows the live target timestamp above the track.
+  a per-video quality override and a global preferred maximum height. In
+  portrait the top and bottom controls bracket an aspect-fitted video without
+  resizing it when the chrome hides; loading stays visible without the chrome,
+  a center transport appears in the normal state, and the live scrub timestamp
+  is centered above the bottom controls. The controls stay visible while
+  touching or seeking.
 - Local categories, channels, uploads history and resume positions. Resume and
   watch statistics are stored locally; a Watch Next queue holds up to 25 items.
 - SponsorBlock is available but off by default. When enabled, each supported

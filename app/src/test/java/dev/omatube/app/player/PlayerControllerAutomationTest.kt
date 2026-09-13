@@ -69,6 +69,7 @@ class PlayerControllerAutomationTest {
         assertThat(controller.player).isNull()
         assertThat(controller.uiState.value.positionMs).isGreaterThan(0L)
         assertThat(controller.uiState.value.title).isEqualTo("Fixture video")
+        assertThat(controller.uiState.value.videoAspectRatio).isEqualTo(DEFAULT_VIDEO_ASPECT)
 
         controller.release()
         scope.cancel()

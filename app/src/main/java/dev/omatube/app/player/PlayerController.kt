@@ -40,6 +40,7 @@ data class PlayerUiState(
     val qualityValue: Int = PlaybackQuality.DEFAULT,
     val effectiveHeight: Int = PlaybackQuality.AUTO,
     val selectedHeight: Int? = null,
+    val videoAspectRatio: Float? = null,
     val sponsorSegments: List<SponsorSegment> = emptyList(),
     val manualSegment: SponsorSegment? = null,
 ) {
@@ -339,6 +340,7 @@ class PlayerController(
                 bufferedMs = snapshot.bufferedMs,
                 error = snapshot.error,
                 selectedHeight = snapshot.videoHeight ?: it.selectedHeight,
+                videoAspectRatio = snapshot.videoAspectRatio ?: it.videoAspectRatio,
                 manualSegment = manual,
             )
         }
@@ -348,7 +350,14 @@ class PlayerController(
         resolveJob?.cancel()
         val effectiveHeight = PlaybackQuality.effectiveHeight(settings, video.id)
         resolveJob = controllerScope.launch {
-            _uiState.update { it.copy(loading = true, error = null, ended = false) }
+            _uiState.update {
+                it.copy(
+                    loading = true,
+                    error = null,
+                    ended = false,
+                    videoAspectRatio = null,
+                )
+            }
             engine.setMaxVideoHeight(effectiveHeight)
             if (automation) {
                 engine.load(mediaSource = null, startPositionMs = startPositionMs, live = video.isLive)

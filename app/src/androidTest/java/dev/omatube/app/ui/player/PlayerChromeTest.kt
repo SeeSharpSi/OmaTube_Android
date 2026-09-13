@@ -1,7 +1,12 @@
 package dev.omatube.app.ui.player
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -114,17 +119,24 @@ class PlayerChromeTest {
     }
 
     @Test
-    fun scrubLabelTracksDragAndDisappearsOnRelease() {
+    fun scrubPreviewLabelSitsCenteredAboveBottomBarAndDisappearsOnRelease() {
         compose.setContent {
             OmaTheme("default") {
-                PlayerSeekBar(
-                    positionMs = 0L,
-                    durationMs = 100_000L,
-                    live = false,
-                    segments = emptyList(),
-                    colors = colors,
-                    onSeek = {},
-                )
+                Box(Modifier.fillMaxSize()) {
+                    PlayerBottomBar(
+                        state = PlayerUiState(positionMs = 0L, durationMs = 100_000L),
+                        colors = colors,
+                        compact = true,
+                        fullscreen = false,
+                        onTogglePlay = {},
+                        onSeek = {},
+                        onScrubbingChange = {},
+                        onToggleMute = {},
+                        onLive = {},
+                        onFullscreen = {},
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
             }
         }
 
@@ -134,15 +146,30 @@ class PlayerChromeTest {
         seekBar.performTouchInput {
             down(Offset(0f, center.y))
             moveTo(Offset(width / 2f, center.y))
+            moveTo(Offset(width / 2f, center.y))
         }
         compose.waitForIdle()
 
         compose.onNodeWithTag("playerSeekScrubLabel").assertExists()
         compose.onNodeWithText("0:50").assertExists()
 
+        val labelBounds = compose.onNodeWithTag("playerSeekScrubLabel").fetchSemanticsNode().boundsInRoot
+        val barBounds = compose.onNodeWithTag("playerBottomBar").fetchSemanticsNode().boundsInRoot
+        val gapPx = with(compose.density) { 8.dp.toPx() }
+        val tolerancePx = with(compose.density) { 1.dp.toPx() }
+        assertEquals(
+            "label center should match the bottom-bar center",
+            barBounds.center.x,
+            labelBounds.center.x,
+            tolerancePx,
+        )
+        assertTrue(
+            "label bottom ${labelBounds.bottom} must sit at least 8 dp above bar top ${barBounds.top}",
+            barBounds.top - labelBounds.bottom >= gapPx - tolerancePx,
+        )
+
         seekBar.performTouchInput { up() }
         compose.waitForIdle()
-
         compose.onNodeWithTag("playerSeekScrubLabel").assertDoesNotExist()
     }
 
@@ -193,11 +220,11 @@ class PlayerChromeTest {
     fun loadingOverlayIs80dpSquare() {
         compose.setContent {
             OmaTheme("default") {
-                PlayerOverlay(
+                PlayerCenterOverlay(
                     state = PlayerUiState(loading = true),
                     colors = colors,
-                    onRetry = {},
-                    onReplay = {},
+                    chromeVisible = false,
+                    onTogglePlay = {},
                 )
             }
         }
@@ -206,6 +233,63 @@ class PlayerChromeTest {
         assertEquals(size.width, size.height)
         val expected = with(compose.density) { 80.dp.roundToPx() }
         assertEquals(expected, size.width)
+    }
+
+    @Test
+    fun loadingCenterOverlayStaysVisibleWhenChromeHidden() {
+        compose.setContent {
+            OmaTheme("default") {
+                PlayerCenterOverlay(
+                    state = PlayerUiState(loading = true),
+                    colors = colors,
+                    chromeVisible = false,
+                    onTogglePlay = {},
+                )
+            }
+        }
+
+        compose.onNodeWithTag("playerOverlay").assertExists()
+    }
+
+    @Test
+    fun centerPlayPauseIsAn80dpSquareWithDistinctDescriptionAndCallsBack() {
+        var clicks = 0
+        compose.setContent {
+            OmaTheme("default") {
+                PlayerCenterOverlay(
+                    state = PlayerUiState(loading = false),
+                    colors = colors,
+                    chromeVisible = true,
+                    onTogglePlay = { clicks++ },
+                )
+            }
+        }
+
+        compose.onNodeWithTag("playerCenterPlayPauseButton").assertExists()
+        compose.onNodeWithContentDescription("Center play").assertExists()
+        val size = compose.onNodeWithTag("playerCenterPlayPauseButton").fetchSemanticsNode().size
+        assertEquals(size.width, size.height)
+        val expected = with(compose.density) { 80.dp.roundToPx() }
+        assertEquals(expected, size.width)
+
+        compose.onNodeWithTag("playerCenterPlayPauseButton").performClick()
+        assertEquals(1, clicks)
+    }
+
+    @Test
+    fun centerPlayPauseIsAbsentWhenChromeHidden() {
+        compose.setContent {
+            OmaTheme("default") {
+                PlayerCenterOverlay(
+                    state = PlayerUiState(loading = false),
+                    colors = colors,
+                    chromeVisible = false,
+                    onTogglePlay = {},
+                )
+            }
+        }
+
+        compose.onNodeWithTag("playerCenterPlayPauseButton").assertDoesNotExist()
     }
 
     @Test

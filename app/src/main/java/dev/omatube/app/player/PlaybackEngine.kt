@@ -33,7 +33,36 @@ data class PlaybackSnapshot(
     val bufferedMs: Long = 0,
     val error: String? = null,
     val videoHeight: Int? = null,
+    val videoAspectRatio: Float? = null,
 )
+
+/** Fallback display ratio used when the engine has not reported a valid size. */
+internal val DEFAULT_VIDEO_ASPECT = 16f / 9f
+
+/**
+ * Displayed width-to-height ratio for a decoded frame. The stored size is
+ * corrected by the pixel aspect ratio and inverted while a quarter-turn
+ * rotation is still pending, so callers get the ratio the user actually sees.
+ * Returns null for invalid or degenerate input so the chrome can fall back to
+ * [DEFAULT_VIDEO_ASPECT].
+ */
+internal fun displayAspectRatio(
+    width: Int,
+    height: Int,
+    pixelWidthHeightRatio: Float,
+    unappliedRotationDegrees: Int,
+): Float? {
+    if (width <= 0 || height <= 0) return null
+    if (!pixelWidthHeightRatio.isFinite() || pixelWidthHeightRatio <= 0f) return null
+    val corrected = (width.toFloat() * pixelWidthHeightRatio) / height.toFloat()
+    if (!corrected.isFinite() || corrected <= 0f) return null
+    val rotated = if (unappliedRotationDegrees == 90 || unappliedRotationDegrees == 270) {
+        1f / corrected
+    } else {
+        corrected
+    }
+    return rotated.takeIf { it.isFinite() && it > 0f }
+}
 
 /**
  * Minimal abstraction over the playback backend so the chrome can be driven
@@ -101,9 +130,16 @@ class ExoPlaybackEngine(context: Context) : PlaybackEngine {
                 }
             }
 
+            @Suppress("DEPRECATION")
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 val height = videoSize.height.takeIf { it > 0 }
-                _snapshot.update { it.copy(videoHeight = height) }
+                val aspect = displayAspectRatio(
+                    width = videoSize.width,
+                    height = videoSize.height,
+                    pixelWidthHeightRatio = videoSize.pixelWidthHeightRatio,
+                    unappliedRotationDegrees = videoSize.unappliedRotationDegrees,
+                )
+                _snapshot.update { it.copy(videoHeight = height, videoAspectRatio = aspect) }
             }
         })
         scope.launch {
@@ -116,7 +152,15 @@ class ExoPlaybackEngine(context: Context) : PlaybackEngine {
 
     override fun load(mediaSource: MediaSource?, startPositionMs: Long, live: Boolean) {
         if (mediaSource == null) return
-        _snapshot.update { it.copy(loading = true, ended = false, error = null, live = live) }
+        _snapshot.update {
+            it.copy(
+                loading = true,
+                ended = false,
+                error = null,
+                live = live,
+                videoAspectRatio = null,
+            )
+        }
         playerInstance.setMediaSource(mediaSource)
         playerInstance.prepare()
         if (startPositionMs > 0L) {
@@ -193,7 +237,7 @@ class FakePlaybackEngine(
     private val tickMs: Long = 250L,
 ) : PlaybackEngine {
     private val _snapshot = MutableStateFlow(
-        PlaybackSnapshot(durationMs = durationMs, loading = false),
+        PlaybackSnapshot(durationMs = durationMs, loading = false, videoAspectRatio = DEFAULT_VIDEO_ASPECT),
     )
     override val snapshot: StateFlow<PlaybackSnapshot> = _snapshot.asStateFlow()
 
@@ -213,6 +257,7 @@ class FakePlaybackEngine(
             live = live,
             positionMs = startPositionMs.coerceAtLeast(0L),
             durationMs = durationMs,
+            videoAspectRatio = DEFAULT_VIDEO_ASPECT,
         )
         loadingJob = scope.launch {
             delay(LOADING_DELAY_MS)
