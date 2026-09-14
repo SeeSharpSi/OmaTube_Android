@@ -15,6 +15,13 @@ license locations.
 - Full UI with thumbnail cards and Simple UI with a text feed and history rows,
   switchable at runtime. Both reuse the desktop Default, Rose Pine and Nord
   palettes with no Material or dynamic-color theming.
+- Full UI draws edge to edge: its palette background paints behind the status
+  and gesture navigation bars, feed cards and the accent dividers reach the
+  safe-area edges on phones while ordinary chrome keeps a 20 dp container inset
+  (the Watch Next and History grids retain their own internal padding), and
+  refresh status plus errors appear as transient top-right notices that
+  auto-hide and dismiss on tap. Simple UI keeps its previous insets, headers and
+  bottom-anchored notices.
 - Bundled JetBrains Mono Nerd Font and Liberation Sans faces, matching the fonts
   the desktop build resolves on its host.
 - Custom player chrome with seek, play/pause, mute, volume, speed, fullscreen,

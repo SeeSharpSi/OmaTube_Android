@@ -92,6 +92,7 @@ fun OmaNavButton(
     ink: Color,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    loading: Boolean = false,
     buttonSize: Dp = 34.dp,
     glyphSize: Dp = 15.dp,
     testTag: String? = null,
@@ -100,6 +101,7 @@ fun OmaNavButton(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val foreground = when {
+        loading -> ink
         !enabled -> mutedInk
         active -> panel
         pressed -> accent
@@ -130,7 +132,16 @@ fun OmaNavButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        OmaGlyph(kind = kind, color = foreground, size = glyphSize)
+        if (loading) {
+            OmaSpinner(
+                active = true,
+                color = foreground,
+                chrome = true,
+                fontSize = (buttonSize.value * 0.42f).sp,
+            )
+        } else {
+            OmaGlyph(kind = kind, color = foreground, size = glyphSize)
+        }
     }
 }
 

@@ -15,12 +15,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.omatube.app.model.LibrarySnapshot
@@ -35,9 +42,11 @@ import dev.omatube.app.ui.library.CategoryBar
 import dev.omatube.app.ui.library.FeedContent
 import dev.omatube.app.ui.library.HistoryContent
 import dev.omatube.app.ui.library.LibraryRoutes
+import dev.omatube.app.ui.library.WATCH_NEXT_CAP
 import dev.omatube.app.ui.library.WatchNextContent
 import dev.omatube.app.ui.theme.LocalOmaColors
 import dev.omatube.app.ui.theme.OmaColors
+import kotlinx.coroutines.delay
 
 /**
  * Library entry point shared by the full and simple UIs. Renders the active
@@ -82,11 +91,18 @@ fun LibraryScreen(
             .background(colors.background)
             .testTag("appWindow"),
     ) {
-        val sideMargin = if (simple) 56.dp else 40.dp
         val maxContentWidth = if (simple) 820.dp else 1120.dp
-        val topMargin = if (simple) 28.dp else 20.dp
-        val bottomMargin = if (simple) 28.dp else 20.dp
-        val contentWidth = (maxWidth - sideMargin).coerceAtLeast(0.dp).coerceAtMost(maxContentWidth)
+        val topMargin = if (simple) 28.dp else 8.dp
+        val bottomMargin = if (simple) 28.dp else 15.dp
+        // Full UI lets the main content span the safe-area width on phones so
+        // feed card edges and the accent dividers reach the screen edges, while
+        // ordinary chrome keeps a 20 dp container inset inside each route.
+        // Simple UI keeps its previous 56 dp side margin and content width.
+        val contentWidth = if (simple) {
+            (maxWidth - 56.dp).coerceAtLeast(0.dp).coerceAtMost(maxContentWidth)
+        } else {
+            maxWidth.coerceAtMost(maxContentWidth)
+        }
         val bottomOverlayPadding = bottomMargin + 42.dp + 10.dp + 2.dp
 
         Column(
@@ -111,6 +127,7 @@ fun LibraryScreen(
                     LibraryRoutes.WATCH_NEXT -> WatchNextContent(
                         library = library,
                         automation = automation,
+                        simple = simple,
                         modifier = Modifier.fillMaxSize(),
                         onOpenVideo = onOpenVideo,
                         onRemoveWatchNext = onRemoveWatchNext,
@@ -136,7 +153,12 @@ fun LibraryScreen(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .padding(top = 8.dp, bottom = 8.dp)
+                            .padding(
+                                start = if (simple) 0.dp else 20.dp,
+                                end = if (simple) 0.dp else 20.dp,
+                                top = 8.dp,
+                                bottom = 8.dp,
+                            )
                             .testTag("categoryOverlay")
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
@@ -163,38 +185,110 @@ fun LibraryScreen(
                 simple = simple,
                 route = currentRoute,
                 refreshing = refreshing,
+                watchNextCount = library.watchNext.size,
                 colors = colors,
                 onRoute = onRoute,
                 onRefresh = onRefresh,
             )
         }
 
-        OmaStatusPill(
-            status = status,
-            active = refreshing || loadingMore,
-            panel = colors.lighterBackground,
-            rule = colors.muted,
-            ink = colors.foreground,
-            mutedInk = colors.darkForeground,
-            chrome = !simple,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 18.dp, bottom = bottomOverlayPadding),
-        )
+        val working = refreshing || loadingMore
 
-        if (error != null) {
-            Box(
+        if (simple) {
+            // Simple UI keeps its existing bottom-anchored status/error
+            // placement, persistence and click behavior.
+            OmaStatusPill(
+                status = status,
+                active = working,
+                panel = colors.lighterBackground,
+                rule = colors.muted,
+                ink = colors.foreground,
+                mutedInk = colors.darkForeground,
+                chrome = false,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 18.dp, end = 18.dp, bottom = bottomOverlayPadding),
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 18.dp, bottom = bottomOverlayPadding),
+            )
+
+            if (error != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 18.dp, end = 18.dp, bottom = bottomOverlayPadding),
+                ) {
+                    OmaErrorBanner(
+                        message = error,
+                        panel = colors.lighterBackground,
+                        danger = colors.red,
+                        paper = colors.background,
+                        onDismiss = onDismissError,
+                    )
+                }
+            }
+        } else {
+            // Full UI shows transient top-right notices: the status popup and
+            // the error banner stack vertically, auto-hide four seconds after
+            // work is inactive, and dismiss on tap. While work is active the
+            // status popup stays until it is clicked.
+            var statusVisible by remember { mutableStateOf(status.isNotEmpty() || working) }
+            LaunchedEffect(status, working) {
+                statusVisible = status.isNotEmpty() || working
+                if (statusVisible && !working) {
+                    delay(4_000L)
+                    statusVisible = false
+                }
+            }
+            LaunchedEffect(error) {
+                if (error != null) {
+                    delay(4_000L)
+                    onDismissError()
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 20.dp, top = 8.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OmaErrorBanner(
-                    message = error,
-                    panel = colors.lighterBackground,
-                    danger = colors.red,
-                    paper = colors.background,
-                    onDismiss = onDismissError,
-                )
+                if (statusVisible) {
+                    OmaStatusPill(
+                        status = status,
+                        active = working,
+                        panel = colors.lighterBackground,
+                        rule = colors.muted,
+                        ink = colors.foreground,
+                        mutedInk = colors.darkForeground,
+                        chrome = true,
+                        modifier = Modifier
+                            .widthIn(max = 360.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClickLabel = "Dismiss status",
+                                role = Role.Button,
+                                onClick = { statusVisible = false },
+                            ),
+                    )
+                }
+                if (error != null) {
+                    OmaErrorBanner(
+                        message = error,
+                        panel = colors.lighterBackground,
+                        danger = colors.red,
+                        paper = colors.background,
+                        onDismiss = onDismissError,
+                        modifier = Modifier
+                            .widthIn(max = 360.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClickLabel = "Dismiss error",
+                                role = Role.Button,
+                                onClick = onDismissError,
+                            ),
+                    )
+                }
             }
         }
     }
@@ -205,6 +299,7 @@ private fun LibraryBottomBar(
     simple: Boolean,
     route: String,
     refreshing: Boolean,
+    watchNextCount: Int,
     colors: OmaColors,
     onRoute: (String) -> Unit,
     onRefresh: () -> Unit,
@@ -218,22 +313,56 @@ private fun LibraryBottomBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(2.dp)
-                .background(colors.accent),
+                .background(colors.accent)
+                .testTag("bottomNavigationDivider"),
         )
         Spacer(Modifier.height(10.dp))
         Row(
-            modifier = Modifier.fillMaxWidth().height(42.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .padding(horizontal = if (simple) 0.dp else 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OmaText(
-                text = LibraryRoutes.label(route),
-                color = colors.accent,
-                fontSize = 20.sp,
-                chrome = true,
-                weight = FontWeight.Bold,
-                modifier = Modifier.testTag("libraryTitle"),
-            )
-            Spacer(Modifier.weight(1f))
+            if (!simple && route == LibraryRoutes.WATCH_NEXT) {
+                // Weighted leading group: the fixed-size navigation buttons are
+                // measured first, then the title ellipsizes before the count or
+                // the controls can be compressed on a narrow phone.
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OmaText(
+                        text = LibraryRoutes.label(route),
+                        color = colors.accent,
+                        fontSize = 17.sp,
+                        chrome = true,
+                        weight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).testTag("libraryTitle"),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    OmaText(
+                        text = "($watchNextCount/$WATCH_NEXT_CAP)",
+                        color = colors.yellow,
+                        fontSize = 11.sp,
+                        chrome = true,
+                        weight = FontWeight.Bold,
+                        modifier = Modifier.testTag("watchNextCount"),
+                    )
+                }
+            } else {
+                OmaText(
+                    text = LibraryRoutes.label(route),
+                    color = colors.accent,
+                    fontSize = 20.sp,
+                    chrome = true,
+                    weight = FontWeight.Bold,
+                    modifier = Modifier.testTag("libraryTitle"),
+                )
+                Spacer(Modifier.weight(1f))
+            }
             OmaNavButton(
                 kind = OmaGlyphKind.FEED,
                 active = route == LibraryRoutes.FEED,
@@ -309,6 +438,7 @@ private fun LibraryBottomBar(
                 mutedInk = colors.darkForeground,
                 ink = colors.foreground,
                 enabled = !refreshing,
+                loading = refreshing && !simple,
                 buttonSize = buttonSize,
                 glyphSize = glyphSize,
                 testTag = "refreshButton",

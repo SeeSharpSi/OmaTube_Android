@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
@@ -33,6 +34,7 @@ import dev.omatube.app.ui.theme.LocalOmaColors
 fun WatchNextContent(
     library: LibrarySnapshot,
     automation: Boolean,
+    simple: Boolean,
     modifier: Modifier = Modifier,
     onOpenVideo: (Video) -> Unit,
     onRemoveWatchNext: (String) -> Unit,
@@ -45,17 +47,26 @@ fun WatchNextContent(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        OmaText(
-            text = "WATCH NEXT (${watchNext.size}/$WATCH_NEXT_CAP)",
-            color = colors.brightYellow,
-            fontSize = 11.sp,
-            chrome = false,
-            weight = FontWeight.Bold,
-            letterSpacing = 1.5.sp,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OmaDivider(color = colors.muted)
-        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+        if (simple) {
+            // Simple UI keeps the top header and divider. Full UI drops them
+            // and moves the count beside the bottom-bar title.
+            OmaText(
+                text = "WATCH NEXT (${watchNext.size}/$WATCH_NEXT_CAP)",
+                color = colors.brightYellow,
+                fontSize = 11.sp,
+                chrome = false,
+                weight = FontWeight.Bold,
+                letterSpacing = 1.5.sp,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OmaDivider(color = colors.muted)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = if (simple) 0.dp else 20.dp),
+        ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val columns = when {
                     maxWidth >= 1040.dp -> 4

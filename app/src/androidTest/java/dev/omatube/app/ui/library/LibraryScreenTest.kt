@@ -1,6 +1,13 @@
 package dev.omatube.app.ui.library
 
+import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -9,6 +16,13 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import dev.omatube.app.model.Category
 import dev.omatube.app.model.Channel
 import dev.omatube.app.model.HistoryEntry
@@ -16,7 +30,9 @@ import dev.omatube.app.model.LibrarySnapshot
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.Video
 import dev.omatube.app.ui.LibraryScreen
+import dev.omatube.app.ui.components.OmaSpinnerFrames
 import dev.omatube.app.ui.theme.OmaTheme
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -56,45 +72,103 @@ class LibraryScreenTest {
         watchNext = listOf(second, first),
     )
 
+    // Adds one live broadcast so the LIVE NOW row and its tile/divider geometry
+    // are exercised. The live video is excluded from the normal feed grid.
+    private val live = Video(
+        id = "live1",
+        channelId = "c1",
+        title = "Live Now",
+        channelTitle = "Channel One",
+        publishedAt = 1_800_000_000_000L,
+        isLive = true,
+    )
+    private val libraryWithLive = library.copy(videos = listOf(first, second, live))
+
     private fun setContent(
         route: String,
         simpleUi: Boolean = false,
         selectedCategoryId: Long = ALL_CATEGORY_ID,
+        refreshing: Boolean = false,
+        loadingMore: Boolean = false,
+        status: String = "",
+        error: String? = null,
+        snapshot: LibrarySnapshot = library,
+        windowWidth: Dp? = null,
         onRoute: (String) -> Unit = {},
         onCategory: (Long) -> Unit = {},
+        onRefresh: () -> Unit = {},
         onOpenVideo: (Video) -> Unit = {},
         onAddWatchNext: (String) -> Unit = {},
         onRemoveWatchNext: (String) -> Unit = {},
         onMoveWatchNext: (String, Int) -> Unit = { _, _ -> },
         onDeleteHistory: (Long) -> Unit = {},
+        onDismissError: () -> Unit = {},
     ) {
         rule.setContent {
             OmaTheme("default") {
-                LibraryScreen(
-                    library = library,
-                    settings = Settings(simpleUi = simpleUi, themeId = "default"),
-                    route = route,
-                    selectedCategoryId = selectedCategoryId,
-                    refreshing = false,
-                    loadingMore = false,
-                    hasMore = false,
-                    status = "",
-                    error = null,
-                    automation = true,
-                    onRoute = onRoute,
-                    onCategory = onCategory,
-                    onMoveCategory = { _, _ -> },
-                    onRefresh = {},
-                    onLoadMore = {},
-                    onOpenVideo = onOpenVideo,
-                    onAddWatchNext = onAddWatchNext,
-                    onRemoveWatchNext = onRemoveWatchNext,
-                    onMoveWatchNext = onMoveWatchNext,
-                    onDeleteHistory = onDeleteHistory,
-                    onDismissError = {},
-                )
+                val screen: @Composable () -> Unit = {
+                    LibraryScreen(
+                        library = snapshot,
+                        settings = Settings(simpleUi = simpleUi, themeId = "default"),
+                        route = route,
+                        selectedCategoryId = selectedCategoryId,
+                        refreshing = refreshing,
+                        loadingMore = loadingMore,
+                        hasMore = false,
+                        status = status,
+                        error = error,
+                        automation = true,
+                        onRoute = onRoute,
+                        onCategory = onCategory,
+                        onMoveCategory = { _, _ -> },
+                        onRefresh = onRefresh,
+                        onLoadMore = {},
+                        onOpenVideo = onOpenVideo,
+                        onAddWatchNext = onAddWatchNext,
+                        onRemoveWatchNext = onRemoveWatchNext,
+                        onMoveWatchNext = onMoveWatchNext,
+                        onDeleteHistory = onDeleteHistory,
+                        onDismissError = onDismissError,
+                    )
+                }
+                if (windowWidth != null) {
+                    Box(modifier = Modifier.width(windowWidth).fillMaxHeight()) {
+                        screen()
+                    }
+                } else {
+                    screen()
+                }
             }
         }
+    }
+
+    // ---- Bounds helpers ---------------------------------------------------
+
+    private fun bounds(tag: String) = rule.onNodeWithTag(tag).getUnclippedBoundsInRoot()
+
+    private fun assertSize(tag: String, widthDp: Float, heightDp: Float, toleranceDp: Float = 1f) {
+        val box = bounds(tag)
+        assertTrue(
+            "$tag width expected ${widthDp}dp but was ${box.right.value - box.left.value}dp",
+            abs((box.right.value - box.left.value) - widthDp) <= toleranceDp,
+        )
+        assertTrue(
+            "$tag height expected ${heightDp}dp but was ${box.bottom.value - box.top.value}dp",
+            abs((box.bottom.value - box.top.value) - heightDp) <= toleranceDp,
+        )
+    }
+
+    private fun assertSpansWindowWidth(tag: String, toleranceDp: Float = 1.5f) {
+        val window = bounds("appWindow")
+        val box = bounds(tag)
+        assertTrue(
+            "$tag left ${box.left.value}dp should reach window left ${window.left.value}dp",
+            abs(box.left.value - window.left.value) <= toleranceDp,
+        )
+        assertTrue(
+            "$tag right ${box.right.value}dp should reach window right ${window.right.value}dp",
+            abs(box.right.value - window.right.value) <= toleranceDp,
+        )
     }
 
     @Test
@@ -183,13 +257,43 @@ class LibraryScreenTest {
             onRemoveWatchNext = { removed.add(it) },
             onMoveWatchNext = { id, index -> moves.add(id to index) },
         )
-        rule.onNodeWithText("WATCH NEXT (2/25)").assertExists()
+        // Full UI drops the top header and moves the count beside the bottom
+        // bar title, so the old combined header text no longer exists.
+        rule.onNodeWithText("WATCH NEXT (2/25)").assertDoesNotExist()
+        rule.onNodeWithTag("libraryTitle").assertTextEquals("Watch Next")
+        rule.onNodeWithTag("watchNextCount").assertExists()
+        rule.onNodeWithTag("watchNextCount").assertTextEquals("(2/25)")
         rule.onNodeWithTag("watchNextUp_v1").performClick()
         rule.waitForIdle()
         assertEquals(listOf("v1" to 0), moves)
         rule.onNodeWithTag("watchNextRemove_v1").performClick()
         rule.waitForIdle()
         assertEquals(listOf("v1"), removed)
+    }
+
+    @Test
+    fun simpleWatchNextKeepsHeaderAndHidesBottomCount() {
+        setContent("watchnext", simpleUi = true)
+        // Simple UI keeps the combined top header and never renders the bottom
+        // count tag that Full UI added.
+        rule.onNodeWithText("WATCH NEXT (2/25)").assertExists()
+        rule.onNodeWithTag("libraryTitle").assertTextEquals("Watch Next")
+        rule.onNodeWithTag("watchNextCount").assertDoesNotExist()
+    }
+
+    @Test
+    fun fullHistoryDropsHeaderAndKeepsGrid() {
+        setContent("history")
+        rule.onNodeWithText("WATCH HISTORY").assertDoesNotExist()
+        rule.onNodeWithTag("historyGrid").assertExists()
+        rule.onNodeWithTag("historyVideo_v1").assertExists()
+    }
+
+    @Test
+    fun simpleHistoryKeepsHeaderAndList() {
+        setContent("history", simpleUi = true)
+        rule.onNodeWithText("WATCH HISTORY").assertExists()
+        rule.onNodeWithTag("historyList").assertExists()
     }
 
     // ---- Tap-to-open regression coverage ---------------------------------
@@ -301,5 +405,230 @@ class LibraryScreenTest {
     fun feedCardKeepsAccessibleDescription() {
         setContent("feed")
         rule.onNodeWithContentDescription("Video v1 First").assertExists()
+    }
+
+    // ---- Transient status notices (Full) vs persisted notices (Simple) -----
+
+    private fun withFrozenClock(block: () -> Unit) {
+        val previous = rule.mainClock.autoAdvance
+        rule.mainClock.autoAdvance = false
+        try {
+            block()
+        } finally {
+            rule.mainClock.autoAdvance = previous
+        }
+    }
+
+    @Test
+    fun fullStatusPopupStartsUpperRightAndDismissesOnClick() {
+        withFrozenClock {
+            setContent("feed", status = "Downloading")
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("libraryStatus").assertExists()
+
+            val window = bounds("appWindow")
+            val status = bounds("libraryStatus")
+            assertTrue(
+                "status right edge must stay inside the window",
+                status.right.value <= window.right.value + 1f,
+            )
+            assertTrue(
+                "status must be anchored to the right edge",
+                status.right.value >= window.right.value - 60f,
+            )
+            assertTrue(
+                "status must sit in the upper half of the window",
+                status.top.value < (window.top.value + window.bottom.value) / 2f,
+            )
+
+            rule.onNodeWithTag("libraryStatus").performClick()
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("libraryStatus").assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun fullInactiveStatusAutoHidesAfterFourSeconds() {
+        withFrozenClock {
+            setContent("feed", status = "Idle status")
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("libraryStatus").assertExists()
+            rule.mainClock.advanceTimeBy(4_500L)
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("libraryStatus").assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun fullActiveStatusStaysUntilClickedAndNeverAutoHides() {
+        withFrozenClock {
+            setContent("feed", refreshing = true, status = "Refreshing")
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("libraryStatus").assertExists()
+
+            // Active work keeps the popup past the four-second window. Advancing
+            // the frozen clock drives the infinite spinner loop deterministically
+            // without waiting for idle.
+            rule.mainClock.advanceTimeBy(5_000L)
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("libraryStatus").assertExists()
+
+            rule.onNodeWithTag("libraryStatus").performClick()
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("libraryStatus").assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun simpleStatusPersistsPastFourSecondsWithoutFullDismissSemantics() {
+        withFrozenClock {
+            setContent("feed", simpleUi = true, status = "Persisted status")
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("libraryStatus").assertExists()
+            rule.onNodeWithText("Persisted status").assertExists()
+            rule.mainClock.advanceTimeBy(4_500L)
+            rule.mainClock.advanceTimeByFrame()
+            // Simple UI never auto-hides and offers no click-to-dismiss action.
+            rule.onNodeWithTag("libraryStatus").assertExists()
+            rule.onNodeWithTag("libraryStatus").assertHasNoClickAction()
+
+            val window = bounds("appWindow")
+            val status = bounds("libraryStatus")
+            assertTrue(
+                "simple status stays bottom anchored",
+                status.bottom.value > window.bottom.value - 200f,
+            )
+            assertTrue(
+                "simple status stays right aligned",
+                status.right.value > window.right.value - 60f,
+            )
+        }
+    }
+
+    // ---- Full refresh spinner ---------------------------------------------
+
+    // Counts braille frame nodes that are descendants of the refresh button,
+    // so the simultaneous library status spinner can never satisfy the
+    // assertion.
+    private fun refreshBrailleFrameCount(): Int = OmaSpinnerFrames.sumOf { frame ->
+        rule.onAllNodes(
+            hasText(frame) and hasAnyAncestor(hasTestTag("refreshButton")),
+            useUnmergedTree = true,
+        ).fetchSemanticsNodes().size
+    }
+
+    @Test
+    fun fullRefreshShowsBrailleSpinnerInsteadOfGlyph() {
+        withFrozenClock {
+            setContent("feed", refreshing = true)
+            rule.mainClock.advanceTimeByFrame()
+
+            rule.onNodeWithTag("refreshButton").assertExists()
+            rule.onNodeWithTag("refreshButton").assertIsNotEnabled()
+
+            assertEquals(
+                "loading refresh must render exactly one braille spinner frame",
+                1,
+                refreshBrailleFrameCount(),
+            )
+
+            // Advance within the spinner interval. Still exactly one braille
+            // frame; do not assert which frame so the test stays deterministic.
+            rule.mainClock.advanceTimeBy(80L)
+            rule.mainClock.advanceTimeByFrame()
+            assertEquals(
+                "spinner keeps exactly one frame after advancing",
+                1,
+                refreshBrailleFrameCount(),
+            )
+        }
+    }
+
+    // ---- Edge-to-edge and tile geometry -----------------------------------
+
+    @Test
+    fun fullFeedCardAndDividersReachWindowEdges() {
+        setContent("feed", snapshot = libraryWithLive)
+        assertSpansWindowWidth("feedVideo_v1")
+        assertSpansWindowWidth("liveDivider")
+        assertSpansWindowWidth("bottomNavigationDivider")
+    }
+
+    @Test
+    fun fullLiveTileShrinksToCompactSize() {
+        setContent("feed", snapshot = libraryWithLive)
+        rule.onNodeWithTag("liveVideo_live1").assertExists()
+        assertSize("liveVideo_live1", widthDp = 64f, heightDp = 78f)
+    }
+
+    @Test
+    fun simpleLiveTileKeepsPriorSize() {
+        setContent("feed", simpleUi = true, snapshot = libraryWithLive)
+        rule.onNodeWithTag("liveVideo_live1").assertExists()
+        assertSize("liveVideo_live1", widthDp = 72f, heightDp = 86f)
+    }
+
+    @Test
+    fun fullWatchNextCountAndNavigationStayInsideWindow() {
+        // Pin the layout to a 411 dp phone so the test fails deterministically
+        // against the prior compressed bottom bar on wider test devices.
+        setContent("watchnext", windowWidth = 411.dp)
+        val window = bounds("appWindow")
+        val count = bounds("watchNextCount")
+        val bar = bounds("bottomNavigationBar")
+        val firstNav = bounds("feedNavigationButton")
+        val refresh = bounds("refreshButton")
+        assertTrue("count starts inside window", count.left.value >= window.left.value - 1f)
+        assertTrue("count ends inside window", count.right.value <= window.right.value + 1f)
+        assertTrue("bottom bar fits inside window", bar.bottom.value <= window.bottom.value + 1f)
+        assertTrue("bottom bar starts inside window", bar.top.value >= window.top.value - 1f)
+        assertTrue("count never overlaps nav buttons", count.right.value <= firstNav.left.value + 1f)
+        // All five navigation controls keep their exact 38 dp square even on a
+        // narrow window; a compressed refresh button fails these assertions.
+        assertSize("feedNavigationButton", widthDp = 38f, heightDp = 38f)
+        assertSize("watchNextNavigationButton", widthDp = 38f, heightDp = 38f)
+        assertSize("historyNavigationButton", widthDp = 38f, heightDp = 38f)
+        assertSize("settingsNavigationButton", widthDp = 38f, heightDp = 38f)
+        assertSize("refreshButton", widthDp = 38f, heightDp = 38f)
+        assertTrue(
+            "refresh button right edge must stay inside the window",
+            refresh.right.value <= window.right.value + 1f,
+        )
+    }
+
+    // ---- Error banner dismissal -------------------------------------------
+
+    @Test
+    fun fullErrorDismissButtonInvokesCallback() {
+        var dismissals = 0
+        withFrozenClock {
+            setContent("feed", error = "Download failed", onDismissError = { dismissals++ })
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("libraryError").assertExists()
+            rule.onNodeWithTag("libraryErrorDismiss").performClick()
+            rule.mainClock.advanceTimeByFrame()
+            assertEquals(1, dismissals)
+        }
+    }
+
+    @Test
+    fun fullErrorBannerRootClickInvokesCallback() {
+        var dismissals = 0
+        withFrozenClock {
+            setContent("feed", error = "Download failed", onDismissError = { dismissals++ })
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("libraryError").performClick()
+            rule.mainClock.advanceTimeByFrame()
+            assertEquals(1, dismissals)
+        }
+    }
+
+    @Test
+    fun simpleErrorDismissButtonInvokesCallback() {
+        var dismissals = 0
+        setContent("feed", simpleUi = true, error = "Download failed", onDismissError = { dismissals++ })
+        rule.onNodeWithTag("libraryErrorDismiss").performClick()
+        rule.waitForIdle()
+        assertEquals(1, dismissals)
     }
 }

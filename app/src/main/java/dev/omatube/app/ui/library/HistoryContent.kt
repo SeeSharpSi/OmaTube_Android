@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -53,17 +54,25 @@ fun HistoryContent(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(spacing),
     ) {
-        OmaText(
-            text = "WATCH HISTORY",
-            color = colors.brightYellow,
-            fontSize = 11.sp,
-            chrome = false,
-            weight = FontWeight.Bold,
-            letterSpacing = 1.5.sp,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OmaDivider(color = colors.muted)
-        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+        if (simple) {
+            // Simple UI keeps the top header and divider; Full UI drops them.
+            OmaText(
+                text = "WATCH HISTORY",
+                color = colors.brightYellow,
+                fontSize = 11.sp,
+                chrome = false,
+                weight = FontWeight.Bold,
+                letterSpacing = 1.5.sp,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OmaDivider(color = colors.muted)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = if (simple) 0.dp else 20.dp),
+        ) {
             if (simple) {
                 SimpleHistoryList(
                     history = history,

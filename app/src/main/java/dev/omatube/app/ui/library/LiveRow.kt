@@ -40,6 +40,7 @@ import dev.omatube.app.ui.theme.LocalOmaColors
 fun LiveRow(
     live: List<Video>,
     avatarUrls: Map<String, String>,
+    simple: Boolean,
     automation: Boolean,
     modifier: Modifier = Modifier,
     onOpen: (Video) -> Unit,
@@ -65,6 +66,7 @@ fun LiveRow(
                 LiveTile(
                     video = video,
                     avatarUrl = avatarUrls[video.channelId].orEmpty(),
+                    simple = simple,
                     automation = automation,
                     onOpen = { onOpen(video) },
                 )
@@ -77,14 +79,21 @@ fun LiveRow(
 private fun LiveTile(
     video: Video,
     avatarUrl: String,
+    simple: Boolean,
     automation: Boolean,
     onOpen: () -> Unit,
 ) {
     val colors = LocalOmaColors.current
+    // Full UI shrinks the live avatar by 15% (56 dp to 48 dp) and trims the
+    // tile to keep the same 16 dp width and 11 dp height slack. Simple UI
+    // keeps its 72x86 tile and 56 dp avatar.
+    val tileWidth = if (simple) 72.dp else 64.dp
+    val tileHeight = if (simple) 86.dp else 78.dp
+    val avatarSize = if (simple) 56.dp else 48.dp
     Column(
         modifier = Modifier
-            .width(72.dp)
-            .height(86.dp)
+            .width(tileWidth)
+            .height(tileHeight)
             .testTag("liveVideo_${video.id}")
             .semantics {
                 contentDescription = "Live video ${video.id} ${video.channelTitle} ${video.title}"
@@ -100,7 +109,7 @@ private fun LiveTile(
     ) {
         Box(
             modifier = Modifier
-                .size(56.dp)
+                .size(avatarSize)
                 .background(colors.lighterBackground)
                 .border(2.dp, colors.brightRed),
             contentAlignment = Alignment.Center,

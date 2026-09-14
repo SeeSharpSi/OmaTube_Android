@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -76,7 +77,9 @@ fun FeedContent(
             LiveRow(
                 live = live,
                 avatarUrls = avatarUrls,
+                simple = simple,
                 automation = automation,
+                modifier = Modifier.padding(horizontal = if (simple) 0.dp else 20.dp),
                 onOpen = onOpenVideo,
             )
             Spacer(Modifier.height(4.dp))
@@ -166,8 +169,8 @@ private fun FullFeedGrid(
             state = state,
             modifier = Modifier.fillMaxSize().testTag("feedGrid"),
             contentPadding = PaddingValues(
-                start = 6.dp,
-                end = 6.dp,
+                start = 0.dp,
+                end = 0.dp,
                 top = topContentPadding,
                 bottom = bottomContentPadding,
             ),

@@ -2,13 +2,17 @@ package dev.omatube.app
 
 import android.app.Activity
 import android.app.PictureInPictureParams
+import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.Rational
+import android.view.Window
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -18,7 +22,10 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.createSavedStateHandle
@@ -124,23 +131,25 @@ private fun AppRoot(
     LaunchedEffect(Unit) { viewModel.start() }
 
     OmaTheme(state.settings.themeId) {
-        // Normal routes draw edge to edge on modern Android, so inset the
-        // non-player container by the safe drawing area (status bar, nav bar,
-        // display cutout). The player deliberately owns its own fullscreen
-        // window behavior and is not wrapped.
-        OmaSystemBars()
+        val simple = state.settings.simpleUi
+        val colors = LocalOmaColors.current
+        val video = state.selectedVideo
+
+        // Non-player Full UI themes the resource-level system bars for older
+        // devices; Simple UI and the player restore the window theme colors.
+        // The player still owns its own fullscreen window behavior.
+        OmaSystemBars(fullUi = !simple && video == null)
 
         BackHandler(
-            enabled = state.selectedVideo != null || state.route != LibraryRoutes.FEED,
+            enabled = video != null || state.route != LibraryRoutes.FEED,
         ) {
-            if (state.selectedVideo != null) {
+            if (video != null) {
                 viewModel.closePlayer()
             } else {
                 viewModel.onRoute(LibraryRoutes.FEED)
             }
         }
 
-        val video = state.selectedVideo
         if (video != null) {
             PlayerScreen(
                 video = video,
@@ -155,53 +164,65 @@ private fun AppRoot(
                 },
             )
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .safeDrawingPadding(),
-            ) {
-                when (state.route) {
-                    LibraryRoutes.SETTINGS -> SettingsScreen(
-                        library = state.library,
-                        settings = state.settings,
-                        addingChannel = state.addingChannel,
-                        error = state.error,
-                        onClose = { viewModel.onRoute(LibraryRoutes.FEED) },
-                        onSettingsChange = viewModel::onSettingsChange,
-                        onAddChannel = viewModel::addChannel,
-                        onRemoveChannel = viewModel::removeChannel,
-                        onSetChannelCategories = viewModel::setChannelCategories,
-                        onAddCategory = viewModel::addCategory,
-                        onRenameCategory = viewModel::renameCategory,
-                        onRemoveCategory = viewModel::removeCategory,
-                        onImport = viewModel::importDocument,
-                        onExport = viewModel::exportDocument,
-                        onDismissError = viewModel::dismissError,
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Full UI paints its palette background behind the status and
+                // gesture navigation bars; Simple UI keeps its prior inset
+                // rendering untouched. The player branch above is unchanged.
+                if (!simple) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(colors.background),
                     )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .safeDrawingPadding(),
+                ) {
+                    when (state.route) {
+                        LibraryRoutes.SETTINGS -> SettingsScreen(
+                            library = state.library,
+                            settings = state.settings,
+                            addingChannel = state.addingChannel,
+                            error = state.error,
+                            onClose = { viewModel.onRoute(LibraryRoutes.FEED) },
+                            onSettingsChange = viewModel::onSettingsChange,
+                            onAddChannel = viewModel::addChannel,
+                            onRemoveChannel = viewModel::removeChannel,
+                            onSetChannelCategories = viewModel::setChannelCategories,
+                            onAddCategory = viewModel::addCategory,
+                            onRenameCategory = viewModel::renameCategory,
+                            onRemoveCategory = viewModel::removeCategory,
+                            onImport = viewModel::importDocument,
+                            onExport = viewModel::exportDocument,
+                            onDismissError = viewModel::dismissError,
+                        )
 
-                    else -> LibraryScreen(
-                        library = state.library,
-                        settings = state.settings,
-                        route = state.route,
-                        selectedCategoryId = state.selectedCategoryId,
-                        refreshing = state.refreshing,
-                        loadingMore = state.loadingMore,
-                        hasMore = state.hasMore,
-                        status = state.status,
-                        error = state.error,
-                        automation = state.automation,
-                        onRoute = viewModel::onRoute,
-                        onCategory = viewModel::onCategory,
-                        onMoveCategory = viewModel::onMoveCategory,
-                        onRefresh = viewModel::refresh,
-                        onLoadMore = viewModel::loadMore,
-                        onOpenVideo = viewModel::openVideo,
-                        onAddWatchNext = viewModel::addWatchNext,
-                        onRemoveWatchNext = viewModel::removeWatchNext,
-                        onMoveWatchNext = viewModel::moveWatchNext,
-                        onDeleteHistory = viewModel::deleteHistory,
-                        onDismissError = viewModel::dismissError,
-                    )
+                        else -> LibraryScreen(
+                            library = state.library,
+                            settings = state.settings,
+                            route = state.route,
+                            selectedCategoryId = state.selectedCategoryId,
+                            refreshing = state.refreshing,
+                            loadingMore = state.loadingMore,
+                            hasMore = state.hasMore,
+                            status = state.status,
+                            error = state.error,
+                            automation = state.automation,
+                            onRoute = viewModel::onRoute,
+                            onCategory = viewModel::onCategory,
+                            onMoveCategory = viewModel::onMoveCategory,
+                            onRefresh = viewModel::refresh,
+                            onLoadMore = viewModel::loadMore,
+                            onOpenVideo = viewModel::openVideo,
+                            onAddWatchNext = viewModel::addWatchNext,
+                            onRemoveWatchNext = viewModel::removeWatchNext,
+                            onMoveWatchNext = viewModel::moveWatchNext,
+                            onDeleteHistory = viewModel::deleteHistory,
+                            onDismissError = viewModel::dismissError,
+                        )
+                    }
                 }
             }
         }
@@ -209,19 +230,53 @@ private fun AppRoot(
 }
 
 /**
- * Keeps the status and navigation bar icons readable for the active OmaTube
- * palette. Light palettes use dark icons; the dark Nord palette uses light
- * icons. The player controls its own bars, so this only adjusts appearance.
+ * Keeps the system bar icons readable and, on older supported releases that
+ * still honor opaque resource bars, themes the bar colors for the non-player
+ * Full UI. Icon appearance follows the background luminance: light Default/Rose
+ * Pine backgrounds get dark icons, the dark Nord background gets light icons.
+ * Simple UI and the player restore the window theme colors so their rendering
+ * is unchanged.
  */
 @Composable
-private fun OmaSystemBars() {
-    val dark = LocalOmaColors.current.mode == "dark"
+private fun OmaSystemBars(fullUi: Boolean) {
+    val background = LocalOmaColors.current.background
+    val darkIcons = background.luminance() > 0.5f
     val view = LocalView.current
     val activity = view.context as? Activity
     SideEffect {
         val window = activity?.window ?: return@SideEffect
         val controller = WindowCompat.getInsetsController(window, view)
-        controller.isAppearanceLightStatusBars = !dark
-        controller.isAppearanceLightNavigationBars = !dark
+        controller.isAppearanceLightStatusBars = darkIcons
+        controller.isAppearanceLightNavigationBars = darkIcons
+        applySystemBarColors(
+            window = window,
+            context = view.context,
+            fullUi = fullUi,
+            backgroundArgb = background.toArgb(),
+        )
+    }
+}
+
+/**
+ * Sets the deprecated window system-bar colors. Modern targets enforce
+ * edge-to-edge over these, but older supported devices render opaque resource
+ * bars, so the palette has to be applied explicitly there.
+ */
+@Suppress("DEPRECATION")
+private fun applySystemBarColors(
+    window: Window,
+    context: Context,
+    fullUi: Boolean,
+    backgroundArgb: Int,
+) {
+    val barColor = if (fullUi) {
+        backgroundArgb
+    } else {
+        ContextCompat.getColor(context, R.color.omatube_window_background)
+    }
+    window.statusBarColor = barColor
+    window.navigationBarColor = barColor
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        window.navigationBarDividerColor = barColor
     }
 }
