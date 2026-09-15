@@ -14,6 +14,7 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,6 +51,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInput
@@ -267,6 +271,15 @@ private fun PlayerContent(
             portraitCenterVisible = false
         }
     }
+    // Portrait keeps top/bottom bars visible, so the center flag is independent.
+    // Mirror landscape: any play/pause transition re-shows the center control;
+    // the auto-hide above then clears it after a few seconds when playing,
+    // while paused it stays visible.
+    LaunchedEffect(state.playing, isPortrait) {
+        if (isPortrait) {
+            portraitCenterVisible = true
+        }
+    }
 
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
@@ -416,6 +429,7 @@ private fun PlayerContent(
                         onToggleMute = controller::toggleMute,
                         onLive = controller::seekToLiveEdge,
                         onFullscreen = onFullscreen,
+                        topBorderOnly = true,
                     )
                 }
                 TranscriptPanel(
@@ -431,10 +445,7 @@ private fun PlayerContent(
                     state = state,
                     colors = colors,
                     chromeVisible = portraitCenterVisible,
-                    onTogglePlay = {
-                        controller.togglePlay()
-                        portraitCenterVisible = false
-                    },
+                    onTogglePlay = controller::togglePlay,
                     modifier = videoModifier,
                 )
             } else {
@@ -637,10 +648,12 @@ internal fun PlayerBottomBar(
     onLive: () -> Unit,
     onFullscreen: () -> Unit,
     modifier: Modifier = Modifier,
+    topBorderOnly: Boolean = false,
 ) {
     // Owned here and drawn as a sibling above the bar, centered over the whole
     // control rectangle, so it never follows the seek handle inside the row.
     var scrubPreviewMs by remember { mutableStateOf<Long?>(null) }
+    val topBorderColor = chromeBorder(colors)
     Box(modifier = modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -648,7 +661,21 @@ internal fun PlayerBottomBar(
                 .height(if (compact) COMPACT_BOTTOM_HEIGHT else WIDE_BOTTOM_HEIGHT)
                 .testTag("playerBottomBar")
                 .background(ChromeBackground)
-                .border(1.dp, chromeBorder(colors), RectangleShape)
+                .then(
+                    if (topBorderOnly) {
+                        Modifier.drawBehind {
+                            val stroke = 1.dp.toPx()
+                            drawLine(
+                                topBorderColor,
+                                Offset(0f, stroke / 2f),
+                                Offset(size.width, stroke / 2f),
+                                strokeWidth = stroke,
+                            )
+                        }
+                    } else {
+                        Modifier.border(1.dp, topBorderColor, RectangleShape)
+                    },
+                )
                 .pointerInput(Unit) { detectTapGestures { } }
                 .padding(8.dp),
         ) {
@@ -783,7 +810,6 @@ internal fun TranscriptPanel(
         modifier = modifier
             .fillMaxWidth()
             .background(TranscriptBackground)
-            .border(1.dp, chromeBorder(colors), RectangleShape)
             .testTag("playerTranscript"),
     ) {
         if (state.transcriptCues.isEmpty()) {
@@ -814,15 +840,24 @@ internal fun TranscriptPanel(
                     var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
                     val currentTextLayout = rememberUpdatedState(textLayout)
                     val currentOnSeek = rememberUpdatedState(onSeek)
-                    val activeWordOffset = if (active) {
-                        activeTranscriptWordCharacterOffset(cue, state.positionMs)
-                    } else {
-                        null
-                    }
+                    var gutterHeightPx by remember { mutableIntStateOf(0) }
+                    // Smooth progress: fractional position through the cue's words,
+                    // mapped onto the measured text height so the gutter tick glides
+                    // continuously instead of snapping per line.
                     val markerTop = textLayout?.let { layout ->
-                        activeWordOffset?.let { offset ->
-                            val line = layout.getLineForOffset(offset)
-                            layout.getLineBottom(line) - markerHeightPx
+                        if (!active) {
+                            null
+                        } else {
+                            val fraction = transcriptCueProgressFraction(cue, state.positionMs)
+                            val total = layout.size.height.toFloat()
+                            if (total <= 0f) {
+                                0f
+                            } else {
+                                (fraction * total - markerHeightPx).coerceIn(
+                                    0f,
+                                    (total - markerHeightPx).coerceAtLeast(0f),
+                                )
+                            }
                         }
                     }
                     Box(
@@ -835,15 +870,47 @@ internal fun TranscriptPanel(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.Top,
                         ) {
-                            BasicText(
-                                text = formatTime(cue.startMs / 1000f),
-                                style = TextStyle(
-                                    color = ChromeInk.copy(alpha = 0.58f),
-                                    fontFamily = OmaTypography.mono,
-                                    fontSize = 12.sp,
-                                ),
-                                modifier = Modifier.width(58.dp),
-                            )
+                            // Timestamp gutter doubles as a scrub handle: tap jumps to
+                            // the cue start, vertical drag seeks smoothly through the
+                            // cue. Kept narrow so text drags still scroll the list.
+                            Box(
+                                modifier = Modifier
+                                    .width(58.dp)
+                                    .fillMaxHeight()
+                                    .onSizeChanged { gutterHeightPx = it.height }
+                                    .testTag("playerTranscriptScrub_$index")
+                                    .pointerInput(cue) {
+                                        detectTapGestures {
+                                            currentOnSeek.value(cue.startMs)
+                                        }
+                                    }
+                                    .pointerInput(cue) {
+                                        detectVerticalDragGestures(
+                                            onDragStart = { offset ->
+                                                val height = gutterHeightPx.coerceAtLeast(1)
+                                                val fraction = (offset.y / height.toFloat()).coerceIn(0f, 1f)
+                                                currentOnSeek.value(transcriptSeekForFraction(cue, fraction))
+                                            },
+                                            onVerticalDrag = { change, _ ->
+                                                val height = gutterHeightPx.coerceAtLeast(1)
+                                                val fraction =
+                                                    (change.position.y / height.toFloat()).coerceIn(0f, 1f)
+                                                currentOnSeek.value(transcriptSeekForFraction(cue, fraction))
+                                                change.consume()
+                                            },
+                                        )
+                                    },
+                                contentAlignment = Alignment.TopStart,
+                            ) {
+                                BasicText(
+                                    text = formatTime(cue.startMs / 1000f),
+                                    style = TextStyle(
+                                        color = ChromeInk.copy(alpha = 0.58f),
+                                        fontFamily = OmaTypography.mono,
+                                        fontSize = 12.sp,
+                                    ),
+                                )
+                            }
                             BasicText(
                                 text = transcriptText(
                                     cue = cue,
@@ -945,7 +1012,7 @@ private val WIDE_BOTTOM_HEIGHT = 64.dp
 private val MIN_TRANSCRIPT_HEIGHT = 180.dp
 private val DEFAULT_VIDEO_ASPECT = 16f / 9f
 private val TranscriptBackground = Color.Black
-private val PORTRAIT_BOTTOM_PADDING = 12.dp
+private val PORTRAIT_BOTTOM_PADDING = 24.dp
 
 internal fun shouldAutoHideChrome(
     isPortrait: Boolean,
@@ -1043,6 +1110,58 @@ internal fun activeTranscriptWordCharacterOffset(cue: TranscriptCue, positionMs:
     val index = cue.words.indexOfLast { it.startMs <= positionMs }
     if (index < 0) return null
     return cue.words.take(index).sumOf { it.text.length + 1 }
+}
+
+/**
+ * Smooth 0..1 progress through a cue based on word timings, interpolating by
+ * time between consecutive word starts (and towards [TranscriptCue.endMs] after
+ * the last word). Empty cues fall back to wall-clock fraction. Used to glide
+ * the gutter tick continuously instead of snapping per line.
+ */
+internal fun transcriptCueProgressFraction(cue: TranscriptCue, positionMs: Long): Float {
+    if (cue.words.isEmpty()) {
+        if (cue.endMs <= cue.startMs) return 0f
+        return ((positionMs - cue.startMs).toFloat() / (cue.endMs - cue.startMs).toFloat()).coerceIn(0f, 1f)
+    }
+    val index = cue.words.indexOfLast { it.startMs <= positionMs }
+    if (index < 0) return 0f
+    if (index >= cue.words.size - 1) {
+        val lastStart = cue.words.last().startMs
+        if (cue.endMs <= lastStart) return 1f
+        val between =
+            ((positionMs - lastStart).toFloat() / (cue.endMs - lastStart).toFloat()).coerceIn(0f, 1f)
+        return ((index.toFloat() + between) / cue.words.size.toFloat()).coerceIn(0f, 1f)
+    }
+    val current = cue.words[index].startMs
+    val next = cue.words[index + 1].startMs
+    val between = if (next > current) {
+        ((positionMs - current).toFloat() / (next - current).toFloat()).coerceIn(0f, 1f)
+    } else {
+        1f
+    }
+    return ((index.toFloat() + between) / cue.words.size.toFloat()).coerceIn(0f, 1f)
+}
+
+/**
+ * Inverse of [transcriptCueProgressFraction]: map a 0..1 vertical fraction
+ * through the cue gutter back to a seek position. Word boundaries anchor the
+ * mapping so scrubbing lands on spoken words, interpolating by time within.
+ */
+internal fun transcriptSeekForFraction(cue: TranscriptCue, fraction: Float): Long {
+    val safe = fraction.coerceIn(0f, 1f)
+    if (cue.words.isEmpty()) {
+        if (cue.endMs <= cue.startMs) return cue.startMs
+        return (cue.startMs + safe * (cue.endMs - cue.startMs).toFloat()).toLong()
+            .coerceIn(cue.startMs, cue.endMs)
+    }
+    val scaled = safe * cue.words.size.toFloat()
+    val index = scaled.toInt().coerceIn(0, cue.words.size - 1)
+    val between = (scaled - index.toFloat()).coerceIn(0f, 1f)
+    val currentStart = cue.words[index].startMs
+    val nextStart = if (index + 1 < cue.words.size) cue.words[index + 1].startMs else cue.endMs
+    if (nextStart <= currentStart) return currentStart.coerceIn(cue.startMs, cue.endMs)
+    return (currentStart + between * (nextStart - currentStart).toFloat()).toLong()
+        .coerceIn(cue.startMs, cue.endMs)
 }
 
 private fun sanitizeDimension(value: Float): Float =
