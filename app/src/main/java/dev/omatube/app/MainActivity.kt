@@ -112,13 +112,6 @@ class MainActivity : ComponentActivity() {
             // The player had not produced a valid running state; skip PiP.
         }
     }
-
-    override fun onStop() {
-        super.onStop()
-        if (!isInPictureInPictureMode) {
-            playerPlaying.value = false
-        }
-    }
 }
 
 @Composable

@@ -10,6 +10,7 @@ import dev.omatube.app.model.Category
 import dev.omatube.app.model.Channel
 import dev.omatube.app.model.LibrarySnapshot
 import dev.omatube.app.model.Settings
+import dev.omatube.app.player.PlaybackQuality
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -91,7 +92,44 @@ class SettingsScreenTest {
         compose.onNodeWithTag("settingsPlaybackTab").performClick()
         compose.onNodeWithTag("sponsorBlockToggle").assertExists()
         compose.onNodeWithTag("sponsorAction_sponsor").assertExists()
-        compose.onNodeWithTag("qualitySelector").assertExists()
+        compose.onNodeWithTag("wifiQualitySelector").assertExists()
+        compose.onNodeWithTag("dataQualitySelector").assertExists()
+        compose.onNodeWithText("Preferred maximum quality - Wi-Fi").assertExists()
+        compose.onNodeWithText("Preferred maximum quality - Data").assertExists()
+    }
+
+    @Test
+    fun wifiQualityDropdownEmitsLastUsedPreference() {
+        var latest: Settings? = null
+        content(onSettingsChange = { latest = it })
+
+        compose.onNodeWithTag("settingsPlaybackTab").performClick()
+        compose.onNodeWithTag("wifiQualitySelector").performClick()
+        compose.onNodeWithTag("wifiQualitySelector_option_0").performClick()
+
+        assertEquals(PlaybackQuality.LAST_USED, latest?.wifiMaximumVideoHeight)
+    }
+
+    @Test
+    fun dataQualityDropdownEmitsSelectedHeight() {
+        var latest: Settings? = null
+        content(onSettingsChange = { latest = it })
+
+        compose.onNodeWithTag("settingsPlaybackTab").performClick()
+        compose.onNodeWithTag("dataQualitySelector").performClick()
+        compose.onNodeWithTag("dataQualitySelector_option_3").performClick()
+
+        assertEquals(1440, latest?.dataMaximumVideoHeight)
+    }
+
+    @Test
+    fun simpleUiStillRendersTheNormalSettingsChrome() {
+        content(settings = Settings(simpleUi = true))
+        compose.onNodeWithTag("settingsTabs").assertExists()
+
+        compose.onNodeWithTag("settingsPlaybackTab").performClick()
+        compose.onNodeWithTag("wifiQualitySelector").assertExists()
+        compose.onNodeWithTag("dataQualitySelector").assertExists()
     }
 
     @Test

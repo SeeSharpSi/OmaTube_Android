@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
@@ -67,35 +70,44 @@ fun WatchNextContent(
                 .weight(1f)
                 .padding(horizontal = if (simple) 0.dp else 20.dp),
         ) {
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val columns = when {
-                    maxWidth >= 1040.dp -> 4
-                    maxWidth >= 780.dp -> 3
-                    maxWidth >= 520.dp -> 2
-                    else -> 1
-                }
-                val state = rememberLazyGridState()
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(columns),
-                    state = state,
-                    modifier = Modifier.fillMaxSize().testTag("watchNextGrid"),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    gridItemsIndexed(
-                        items = watchNext,
-                        key = { _, video -> video.id },
-                    ) { index, video ->
-                        WatchNextCard(
-                            video = video,
-                            index = index,
-                            count = watchNext.size,
-                            automation = automation,
-                            onOpenVideo = onOpenVideo,
-                            onRemoveWatchNext = onRemoveWatchNext,
-                            onMoveWatchNext = onMoveWatchNext,
-                        )
+            if (simple) {
+                SimpleWatchNextList(
+                    watchNext = watchNext,
+                    onOpenVideo = onOpenVideo,
+                    onRemoveWatchNext = onRemoveWatchNext,
+                    onMoveWatchNext = onMoveWatchNext,
+                )
+            } else {
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val columns = when {
+                        maxWidth >= 1040.dp -> 4
+                        maxWidth >= 780.dp -> 3
+                        maxWidth >= 520.dp -> 2
+                        else -> 1
+                    }
+                    val state = rememberLazyGridState()
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(columns),
+                        state = state,
+                        modifier = Modifier.fillMaxSize().testTag("watchNextGrid"),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        gridItemsIndexed(
+                            items = watchNext,
+                            key = { _, video -> video.id },
+                        ) { index, video ->
+                            WatchNextCard(
+                                video = video,
+                                index = index,
+                                count = watchNext.size,
+                                automation = automation,
+                                onOpenVideo = onOpenVideo,
+                                onRemoveWatchNext = onRemoveWatchNext,
+                                onMoveWatchNext = onMoveWatchNext,
+                            )
+                        }
                     }
                 }
             }
@@ -156,5 +168,57 @@ private fun WatchNextCard(
                 },
             ),
         )
+    }
+}
+
+/** Simple-UI Watch Next queue: title-only rows with the queue controls inline. */
+@Composable
+private fun SimpleWatchNextList(
+    watchNext: List<Video>,
+    onOpenVideo: (Video) -> Unit,
+    onRemoveWatchNext: (String) -> Unit,
+    onMoveWatchNext: (String, Int) -> Unit,
+) {
+    val state = rememberLazyListState()
+    LazyColumn(
+        state = state,
+        modifier = Modifier.fillMaxSize().testTag("watchNextList"),
+    ) {
+        itemsIndexed(items = watchNext, key = { _, video -> video.id }) { index, video ->
+            var menuOpen by remember { mutableStateOf(false) }
+            Box {
+                SimpleVideoRow(
+                    video = video,
+                    percent = watchProgressPercent(video),
+                    testTag = "watchNextVideo_${video.id}",
+                    contentDescription = "Watch Next video ${video.id} ${video.title}",
+                    metaText = "#${index + 1}",
+                    onOpen = { onOpenVideo(video) },
+                    onLongPress = { menuOpen = true },
+                    controls = {
+                        QueueControls(
+                            videoId = video.id,
+                            position = index,
+                            canMoveUp = index > 0,
+                            canMoveDown = index < watchNext.size - 1,
+                            chrome = false,
+                            onMove = { target -> onMoveWatchNext(video.id, target) },
+                            onRemove = { onRemoveWatchNext(video.id) },
+                        )
+                    },
+                )
+                OmaPopupMenu(
+                    expanded = menuOpen,
+                    offset = IntOffset(0, 0),
+                    chrome = false,
+                    onDismiss = { menuOpen = false },
+                    items = listOf(
+                        OmaMenuItem(label = "Remove from Watch Next", danger = true) {
+                            onRemoveWatchNext(video.id)
+                        },
+                    ),
+                )
+            }
+        }
     }
 }

@@ -5,6 +5,9 @@ import androidx.annotation.OptIn
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import dev.omatube.app.backend.VideoBackend
+import dev.omatube.app.connectivity.AndroidConnectivityProvider
+import dev.omatube.app.connectivity.ConnectionType
+import dev.omatube.app.connectivity.ConnectivityProvider
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.SponsorSegment
 import dev.omatube.app.model.Video
@@ -58,10 +61,11 @@ data class PlayerUiState(
  * Owns the playback backend, source resolution, watch accounting and
  * SponsorBlock integration for a single video.
  *
- * The ViewModel/root owns persistence and passes [onReportPlayback] and
- * [onSettingsChange] callbacks in; this class never touches the repository.
- * It is not recreated on rotation (the Activity handles orientation changes),
- * so positions and session accounting survive rotation and quality changes.
+ * The owner (the playback service outside automation, or the player composable
+ * in automation) passes [onReportPlayback] and [onSettingsChange] callbacks in;
+ * this class never touches the repository. The service owns real instances so
+ * playback survives Activity stop and screen lock; automation keeps a local
+ * instance so it never touches the service, network or real media.
  */
 @OptIn(UnstableApi::class)
 class PlayerController(
@@ -75,6 +79,7 @@ class PlayerController(
     private val scope: CoroutineScope,
     engineOverride: PlaybackEngine? = null,
     private val watchAccounting: WatchAccounting = WatchAccounting(),
+    private val connectivityProvider: ConnectivityProvider? = null,
 ) {
     private val appContext: Context by lazy { context.applicationContext }
 
@@ -90,6 +95,14 @@ class PlayerController(
 
     private val dataSources: PlaybackDataSources by lazy { PlaybackDataSources(appContext) }
     private val resolver: MediaSourceResolver by lazy { MediaSourceResolver(dataSources) }
+
+    /**
+     * Connectivity is only consulted in non-automation mode; automation keeps a
+     * synthetic Data classification so no Android service is touched.
+     */
+    private val connectivity: ConnectivityProvider by lazy {
+        connectivityProvider ?: AndroidConnectivityProvider(appContext)
+    }
 
     private val watch: WatchAccounting = watchAccounting
     private val sponsor = SponsorBlockController(backend, controllerScope)
@@ -108,10 +121,13 @@ class PlayerController(
             volume = initialSettings.playbackVolume,
             muted = initialSettings.playbackVolume == 0,
             qualityValue = initialSettings.videoQualityOverrides[video.id] ?: PlaybackQuality.DEFAULT,
-            effectiveHeight = PlaybackQuality.effectiveHeight(initialSettings, video.id),
+            effectiveHeight = PlaybackQuality.effectiveHeight(initialSettings, video.id, connectionType()),
         ),
     )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+
+    /** Stable id of the video this controller owns. */
+    val videoId: String get() = video.id
 
     /** Media3 player for `PlayerView`, or null in automation mode. */
     val player: Player? get() = (engine as? ExoPlaybackEngine)?.player
@@ -138,16 +154,33 @@ class PlayerController(
     }
 
     fun togglePlay() {
-        val state = _uiState.value
-        if (state.ended) {
+        if (_uiState.value.ended) {
             replay()
             return
         }
-        if (state.playing) {
-            flushReport()
+        if (_uiState.value.playing) pause() else play()
+    }
+
+    /** Idempotent resume; replays an ended video instead of becoming a no-op. */
+    fun play() {
+        if (released) return
+        if (_uiState.value.ended) {
+            replay()
+            return
+        }
+        if (_uiState.value.playing) return
+        engine.play()
+    }
+
+    /**
+     * Idempotent pause. Always flushes the watch accounting so the final
+     * credited time and position are not lost, then pauses only while playing.
+     */
+    fun pause() {
+        if (released) return
+        flushReport()
+        if (_uiState.value.playing) {
             engine.pause()
-        } else {
-            engine.play()
         }
     }
 
@@ -203,19 +236,25 @@ class PlayerController(
     }
 
     fun setQuality(value: Int) {
-        val previousEffective = PlaybackQuality.effectiveHeight(settings, video.id)
+        // One connection sample per interaction so the before/after comparison
+        // and the resulting resolution use the same preference.
+        val connection = connectionType()
+        val previousEffective = PlaybackQuality.effectiveHeight(settings, video.id, connection)
         if (automation) {
             val effective = if (value == PlaybackQuality.DEFAULT) {
-                PlaybackQuality.normalizeGlobalHeight(settings.maximumVideoHeight)
+                PlaybackQuality.effectiveHeight(settings, video.id, connection)
             } else {
                 PlaybackQuality.normalizeGlobalHeight(value)
             }
             _uiState.update { it.copy(qualityValue = value, effectiveHeight = effective) }
             return
         }
+        // applyChoice updates both the per-video override and the shared
+        // last-used height for Auto/fixed choices; Default only drops the
+        // override. The caller persists exactly one settings update.
         settings = PlaybackQuality.applyChoice(settings, video.id, value)
         onSettingsChange(settings)
-        val effective = PlaybackQuality.effectiveHeight(settings, video.id)
+        val effective = PlaybackQuality.effectiveHeight(settings, video.id, connection)
         _uiState.update {
             it.copy(
                 qualityValue = settings.videoQualityOverrides[video.id] ?: PlaybackQuality.DEFAULT,
@@ -232,7 +271,8 @@ class PlayerController(
 
     /** Applies externally persisted settings without echoing them back. */
     fun updateSettings(newSettings: Settings) {
-        val previousEffective = PlaybackQuality.effectiveHeight(settings, video.id)
+        val connection = connectionType()
+        val previousEffective = PlaybackQuality.effectiveHeight(settings, video.id, connection)
         val sponsorEnabledChanged = newSettings.sponsorBlockEnabled != settings.sponsorBlockEnabled
         settings = newSettings
         engine.setVolume(newSettings.playbackVolume / 100f)
@@ -241,41 +281,19 @@ class PlayerController(
                 volume = newSettings.playbackVolume,
                 muted = newSettings.playbackVolume == 0,
                 qualityValue = newSettings.videoQualityOverrides[video.id] ?: PlaybackQuality.DEFAULT,
-                effectiveHeight = PlaybackQuality.effectiveHeight(newSettings, video.id),
+                effectiveHeight = PlaybackQuality.effectiveHeight(newSettings, video.id, connection),
             )
         }
         if (sponsorEnabledChanged) {
             sponsor.load(video.id, newSettings.sponsorBlockEnabled && !automation)
         }
-        val effective = PlaybackQuality.effectiveHeight(newSettings, video.id)
+        val effective = PlaybackQuality.effectiveHeight(newSettings, video.id, connection)
         if (!automation && effective != previousEffective) {
             val position = _uiState.value.positionMs
             val playing = _uiState.value.playing
             flushReport()
             resolveAndLoad(position, resumePlaying = playing)
         }
-    }
-
-    /** Called on lifecycle stop when the activity is not in picture-in-picture. */
-    fun onBackground() {
-        flushReport()
-        if (_uiState.value.playing) {
-            engine.pause()
-        }
-    }
-
-    /** Pauses when audio focus is lost or headphones are unplugged. */
-    fun pauseIfPlaying() {
-        flushReport()
-        if (_uiState.value.playing) {
-            engine.pause()
-        }
-    }
-
-    /** Attenuates the volume for transient audio focus loss. */
-    fun setDucked(ducked: Boolean) {
-        val base = settings.playbackVolume / 100f
-        engine.setVolume(if (ducked) base * DUCK_FACTOR else base)
     }
 
     fun release() {
@@ -289,6 +307,9 @@ class PlayerController(
     }
 
     // region Internals
+
+    private fun connectionType(): ConnectionType =
+        if (automation) ConnectionType.DATA else connectivity.currentConnectionType()
 
     private fun handleSnapshot(snapshot: PlaybackSnapshot) {
         val error = snapshot.error
@@ -348,7 +369,9 @@ class PlayerController(
 
     private fun resolveAndLoad(startPositionMs: Long, resumePlaying: Boolean) {
         resolveJob?.cancel()
-        val effectiveHeight = PlaybackQuality.effectiveHeight(settings, video.id)
+        // Every resolution re-samples the active connection so the matching
+        // Wi-Fi or Data preference is used.
+        val effectiveHeight = PlaybackQuality.effectiveHeight(settings, video.id, connectionType())
         resolveJob = controllerScope.launch {
             _uiState.update {
                 it.copy(
@@ -452,7 +475,6 @@ class PlayerController(
     private companion object {
         const val MINIMUM_RESUME_SECONDS = 30L
         const val RESUME_END_THRESHOLD_SECONDS = 90L
-        const val DUCK_FACTOR = 0.3f
 
         /** How often the periodic watch collector checks for a due report. */
         const val WATCH_SAVE_TICK_MS = 1_000L

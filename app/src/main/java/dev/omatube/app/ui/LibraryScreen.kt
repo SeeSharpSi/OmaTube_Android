@@ -105,79 +105,91 @@ fun LibraryScreen(
         }
         val bottomOverlayPadding = bottomMargin + 42.dp + 10.dp + 2.dp
 
+        // The outer column spans the capped window width so the bottom bar
+        // reaches the same absolute horizontal position in both UIs (Simple
+        // must not inherit its extra route-content side margin). Route content
+        // stays centered at contentWidth inside it.
+        val outerWidth = maxWidth.coerceAtMost(maxContentWidth)
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .width(contentWidth)
+                .width(outerWidth)
                 .fillMaxHeight()
                 .padding(top = topMargin, bottom = bottomMargin),
             verticalArrangement = Arrangement.Top,
         ) {
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                when (currentRoute) {
-                    LibraryRoutes.HISTORY -> HistoryContent(
-                        library = library,
-                        settings = settings,
-                        automation = automation,
-                        modifier = Modifier.fillMaxSize(),
-                        onOpenVideo = onOpenVideo,
-                        onDeleteHistory = onDeleteHistory,
-                    )
-
-                    LibraryRoutes.WATCH_NEXT -> WatchNextContent(
-                        library = library,
-                        automation = automation,
-                        simple = simple,
-                        modifier = Modifier.fillMaxSize(),
-                        onOpenVideo = onOpenVideo,
-                        onRemoveWatchNext = onRemoveWatchNext,
-                        onMoveWatchNext = onMoveWatchNext,
-                    )
-
-                    else -> FeedContent(
-                        library = library,
-                        settings = settings,
-                        selectedCategoryId = selectedCategoryId,
-                        refreshing = refreshing,
-                        loadingMore = loadingMore,
-                        hasMore = hasMore,
-                        automation = automation,
-                        modifier = Modifier.fillMaxSize(),
-                        onLoadMore = onLoadMore,
-                        onOpenVideo = onOpenVideo,
-                        onAddWatchNext = onAddWatchNext,
-                    )
-                }
-                if (currentRoute == LibraryRoutes.FEED && library.categories.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .padding(
-                                start = if (simple) 0.dp else 20.dp,
-                                end = if (simple) 0.dp else 20.dp,
-                                top = 8.dp,
-                                bottom = 8.dp,
-                            )
-                            .testTag("categoryOverlay")
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = {},
-                            ),
-                        contentAlignment = Alignment.BottomStart,
-                    ) {
-                        CategoryBar(
-                            categories = library.categories,
-                            selectedCategoryId = selectedCategoryId,
-                            chrome = !simple,
-                            barHeight = if (simple) 42.dp else 36.dp,
-                            buttonHeight = if (simple) 40.dp else 34.dp,
-                            horizontalPadding = if (simple) 18.dp else 14.dp,
-                            fontSize = if (simple) 14.sp else 11.sp,
-                            onCategory = onCategory,
-                            onMoveCategory = onMoveCategory,
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .width(contentWidth)
+                        .fillMaxHeight(),
+                ) {
+                    when (currentRoute) {
+                        LibraryRoutes.HISTORY -> HistoryContent(
+                            library = library,
+                            settings = settings,
+                            automation = automation,
+                            modifier = Modifier.fillMaxSize(),
+                            onOpenVideo = onOpenVideo,
+                            onDeleteHistory = onDeleteHistory,
                         )
+
+                        LibraryRoutes.WATCH_NEXT -> WatchNextContent(
+                            library = library,
+                            automation = automation,
+                            simple = simple,
+                            modifier = Modifier.fillMaxSize(),
+                            onOpenVideo = onOpenVideo,
+                            onRemoveWatchNext = onRemoveWatchNext,
+                            onMoveWatchNext = onMoveWatchNext,
+                        )
+
+                        else -> FeedContent(
+                            library = library,
+                            settings = settings,
+                            selectedCategoryId = selectedCategoryId,
+                            refreshing = refreshing,
+                            loadingMore = loadingMore,
+                            hasMore = hasMore,
+                            automation = automation,
+                            modifier = Modifier.fillMaxSize(),
+                            onLoadMore = onLoadMore,
+                            onOpenVideo = onOpenVideo,
+                            onAddWatchNext = onAddWatchNext,
+                        )
+                    }
+                    if (currentRoute == LibraryRoutes.FEED && library.categories.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .padding(
+                                    start = if (simple) 0.dp else 20.dp,
+                                    end = if (simple) 0.dp else 20.dp,
+                                    top = 8.dp,
+                                    bottom = 8.dp,
+                                )
+                                .testTag("categoryOverlay")
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {},
+                                ),
+                            contentAlignment = Alignment.BottomStart,
+                        ) {
+                            CategoryBar(
+                                categories = library.categories,
+                                selectedCategoryId = selectedCategoryId,
+                                chrome = !simple,
+                                barHeight = if (simple) 42.dp else 36.dp,
+                                buttonHeight = if (simple) 40.dp else 34.dp,
+                                horizontalPadding = if (simple) 18.dp else 14.dp,
+                                fontSize = if (simple) 14.sp else 11.sp,
+                                onCategory = onCategory,
+                                onMoveCategory = onMoveCategory,
+                            )
+                        }
                     }
                 }
             }
@@ -304,8 +316,10 @@ private fun LibraryBottomBar(
     onRoute: (String) -> Unit,
     onRefresh: () -> Unit,
 ) {
-    val buttonSize = if (simple) 44.dp else 38.dp
-    val glyphSize = if (simple) 17.dp else 15.dp
+    // Simple and Full navigation share one geometry so the Simple bar matches
+    // the Full bar in button size, glyph size and horizontal padding.
+    val buttonSize = 38.dp
+    val glyphSize = 15.dp
     Column(
         modifier = Modifier.fillMaxWidth().testTag("bottomNavigationBar"),
     ) {
@@ -321,13 +335,14 @@ private fun LibraryBottomBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(42.dp)
-                .padding(horizontal = if (simple) 0.dp else 20.dp),
+                .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!simple && route == LibraryRoutes.WATCH_NEXT) {
                 // Weighted leading group: the fixed-size navigation buttons are
-                // measured first, then the title ellipsizes before the count or
-                // the controls can be compressed on a narrow phone.
+                // measured first, then the title and count stay adjacent and
+                // left-aligned instead of the count being pushed to the far
+                // right beside the navigation controls.
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
@@ -340,7 +355,9 @@ private fun LibraryBottomBar(
                         weight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).testTag("libraryTitle"),
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .testTag("libraryTitle"),
                     )
                     Spacer(Modifier.width(6.dp))
                     OmaText(
@@ -353,10 +370,14 @@ private fun LibraryBottomBar(
                     )
                 }
             } else {
+                // Simple UI keeps its top Watch Next header and omits the
+                // bottom-bar count, but its Watch Next route label still uses
+                // the same 17 sp typography as the Full UI; Feed and History
+                // keep the 20 sp route label.
                 OmaText(
                     text = LibraryRoutes.label(route),
                     color = colors.accent,
-                    fontSize = 20.sp,
+                    fontSize = if (route == LibraryRoutes.WATCH_NEXT) 17.sp else 20.sp,
                     chrome = true,
                     weight = FontWeight.Bold,
                     modifier = Modifier.testTag("libraryTitle"),
@@ -438,7 +459,7 @@ private fun LibraryBottomBar(
                 mutedInk = colors.darkForeground,
                 ink = colors.foreground,
                 enabled = !refreshing,
-                loading = refreshing && !simple,
+                loading = refreshing,
                 buttonSize = buttonSize,
                 glyphSize = glyphSize,
                 testTag = "refreshButton",

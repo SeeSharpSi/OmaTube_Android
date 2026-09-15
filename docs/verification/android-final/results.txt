@@ -44,12 +44,11 @@ start ui=full route=player theme=default settle=1.4
 paused player ui=full (chrome held)
 shot=full-player-chrome.png PNG image data, 1080 x 2400
 PASS player top bar BACK present
-measure player_seek_bounds=593 2218 244 2169 943 2268 tap=733,2218
-seek before=2:00 after=6:59
+measure player_seek_bounds=540 1578 21 1526 1059 1631 tap=747,1578
+seek before=2:02 after=6:59
 PASS player seek moves position
 shot=full-player-seek.png PNG image data, 1080 x 2400
 PASS seek handle square 24x23px
-PASS volume handle square 24x24px
 PASS quality selector shows mixed-case Default
 PASS no uppercase DEFAULT label
 shot=full-player-quality-open.png PNG image data, 1080 x 2400
@@ -89,9 +88,11 @@ PASS simple feed reachable after toggle+back
 start ui=full route=player theme=default settle=1.4
 shot=full-player-landscape.png PNG image data, 2400 x 1080
 PASS player rotation portrait -> landscape
+PASS landscape fullscreen content description is Exit fullscreen
 shot=full-player-portrait-again.png PNG image data, 1080 x 2400
 PASS player rotation landscape -> portrait
-app_pid=28079 app_logcat_lines=36
+PASS portrait fullscreen content description is Fullscreen
+app_pid=8474 app_logcat_lines=37
 PASS no network/extractor tokens in app logcat
 PASS no fatal exceptions in app logcat
 done results=docs/verification/android-final/results.txt

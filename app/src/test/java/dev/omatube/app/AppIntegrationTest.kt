@@ -396,7 +396,9 @@ class AppIntegrationTest {
         val initial = viewModel.uiState.value.settings
 
         viewModel.onSettingsChange(initial.copy(playbackVolume = 40))
-        viewModel.onSettingsChange(initial.copy(maximumVideoHeight = 1080))
+        viewModel.onSettingsChange(initial.copy(wifiMaximumVideoHeight = 1080))
+        viewModel.onSettingsChange(initial.copy(dataMaximumVideoHeight = 480))
+        viewModel.onSettingsChange(initial.copy(lastUsedVideoHeight = 720))
         viewModel.onSettingsChange(initial.copy(themeId = "nord"))
         viewModel.onSettingsChange(initial.copy(shortVideoCutoffMinutes = 7))
         viewModel.onSettingsChange(initial.copy(videoQualityOverrides = mapOf("a" to 720)))
@@ -405,7 +407,9 @@ class AppIntegrationTest {
         awaitTrue {
             val s = viewModel.uiState.value.settings
             s.playbackVolume == 40 &&
-                s.maximumVideoHeight == 1080 &&
+                s.wifiMaximumVideoHeight == 1080 &&
+                s.dataMaximumVideoHeight == 480 &&
+                s.lastUsedVideoHeight == 720 &&
                 s.themeId == "nord" &&
                 s.shortVideoCutoffMinutes == 7 &&
                 s.videoQualityOverrides["a"] == 720 &&

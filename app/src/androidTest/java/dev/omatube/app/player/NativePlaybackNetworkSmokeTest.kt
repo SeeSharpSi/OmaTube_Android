@@ -90,7 +90,11 @@ class NativePlaybackNetworkSmokeTest {
     @Test
     fun playsPublicVideoThroughRealMedia3() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val settings = Settings(maximumVideoHeight = INITIAL_MAX_HEIGHT)
+        val settings = Settings(
+            wifiMaximumVideoHeight = INITIAL_MAX_HEIGHT,
+            dataMaximumVideoHeight = INITIAL_MAX_HEIGHT,
+            lastUsedVideoHeight = INITIAL_MAX_HEIGHT,
+        )
         val video = Video(
             id = PUBLIC_VIDEO_ID,
             channelId = PUBLIC_CHANNEL_ID,

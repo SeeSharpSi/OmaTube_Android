@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.SponsorAction
+import dev.omatube.app.player.PlaybackQuality
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -133,7 +134,9 @@ class DataStoreSettingsStore internal constructor(
                 preferences[Keys.THEME_ID] = updated.themeId
                 preferences[Keys.SIMPLE_UI] = updated.simpleUi
                 preferences[Keys.SHORT_CUTOFF] = updated.shortVideoCutoffMinutes
-                preferences[Keys.MAX_HEIGHT] = updated.maximumVideoHeight
+                preferences[Keys.WIFI_MAX_HEIGHT] = updated.wifiMaximumVideoHeight
+                preferences[Keys.DATA_MAX_HEIGHT] = updated.dataMaximumVideoHeight
+                preferences[Keys.LAST_USED_HEIGHT] = updated.lastUsedVideoHeight
                 preferences[Keys.VOLUME] = updated.playbackVolume
                 preferences[Keys.SPONSOR_ENABLED] = updated.sponsorBlockEnabled
                 encodeMap(updated.sponsorActions.mapValues { it.value.name })
@@ -216,11 +219,20 @@ class DataStoreSettingsStore internal constructor(
 
     private fun preferencesToSettings(preferences: Preferences, key: PersistedKey): Settings {
         val remember = (preferences[Keys.REMEMBER_API_KEY] ?: false) && key.plaintext != null
+        // The legacy scalar is read-only migration input: an existing install
+        // that only stored `maximum_video_height` seeds both connection
+        // preferences and the shared last-used height with the old value.
+        val legacyHeight = preferences[Keys.MAX_HEIGHT]?.let(PlaybackQuality::normalizeGlobalHeight)
+        val wifiHeight = preferences[Keys.WIFI_MAX_HEIGHT] ?: legacyHeight ?: PlaybackQuality.AUTO
+        val dataHeight = preferences[Keys.DATA_MAX_HEIGHT] ?: legacyHeight ?: PlaybackQuality.AUTO
+        val lastUsedHeight = preferences[Keys.LAST_USED_HEIGHT] ?: legacyHeight ?: PlaybackQuality.AUTO
         return Settings(
             themeId = preferences[Keys.THEME_ID]?.takeIf { it.isNotBlank() } ?: "default",
             simpleUi = preferences[Keys.SIMPLE_UI] ?: false,
             shortVideoCutoffMinutes = (preferences[Keys.SHORT_CUTOFF] ?: 3).coerceIn(0, 60),
-            maximumVideoHeight = (preferences[Keys.MAX_HEIGHT] ?: 0).coerceAtLeast(0),
+            wifiMaximumVideoHeight = wifiHeight.takeIf(PlaybackQuality::isPreference) ?: PlaybackQuality.AUTO,
+            dataMaximumVideoHeight = dataHeight.takeIf(PlaybackQuality::isPreference) ?: PlaybackQuality.AUTO,
+            lastUsedVideoHeight = PlaybackQuality.normalizeGlobalHeight(lastUsedHeight),
             playbackVolume = (preferences[Keys.VOLUME] ?: 100).coerceIn(0, 100),
             sponsorBlockEnabled = preferences[Keys.SPONSOR_ENABLED] ?: false,
             sponsorActions = decodeSponsorActions(preferences[Keys.SPONSOR_ACTIONS]),
@@ -288,7 +300,15 @@ class DataStoreSettingsStore internal constructor(
         require(shortVideoCutoffMinutes in 0..60) {
             "Short video cutoff must be between 0 and 60 minutes."
         }
-        require(maximumVideoHeight >= 0) { "Maximum video height cannot be negative." }
+        require(PlaybackQuality.isPreference(wifiMaximumVideoHeight)) {
+            "Wi-Fi maximum video height is not a valid preference."
+        }
+        require(PlaybackQuality.isPreference(dataMaximumVideoHeight)) {
+            "Data maximum video height is not a valid preference."
+        }
+        require(PlaybackQuality.isConcrete(lastUsedVideoHeight)) {
+            "Last-used video height must be a concrete value."
+        }
         require(playbackVolume in 0..100) { "Playback volume must be between 0 and 100." }
         for (key in sponsorActions.keys) {
             require(key.isNotBlank()) { "SponsorBlock category cannot be blank." }
@@ -309,6 +329,10 @@ class DataStoreSettingsStore internal constructor(
         val THEME_ID = stringPreferencesKey("theme_id")
         val SIMPLE_UI = booleanPreferencesKey("simple_ui")
         val SHORT_CUTOFF = intPreferencesKey("short_video_cutoff_minutes")
+        val WIFI_MAX_HEIGHT = intPreferencesKey("wifi_maximum_video_height")
+        val DATA_MAX_HEIGHT = intPreferencesKey("data_maximum_video_height")
+        val LAST_USED_HEIGHT = intPreferencesKey("last_used_video_height")
+        // Legacy scalar kept only as concrete persisted-data migration input.
         val MAX_HEIGHT = intPreferencesKey("maximum_video_height")
         val VOLUME = intPreferencesKey("playback_volume")
         val SPONSOR_ENABLED = booleanPreferencesKey("sponsor_block_enabled")

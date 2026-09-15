@@ -2,6 +2,7 @@ package dev.omatube.app.player
 
 import android.content.Context
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -93,7 +94,17 @@ interface PlaybackEngine {
 /** Real Media3 engine used outside automation mode. */
 @OptIn(UnstableApi::class)
 class ExoPlaybackEngine(context: Context) : PlaybackEngine {
-    private val playerInstance = ExoPlayer.Builder(context).build()
+    private val playerInstance = ExoPlayer.Builder(context)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            /* handleAudioFocus = */ true,
+        )
+        .setHandleAudioBecomingNoisy(true)
+        .setWakeMode(C.WAKE_MODE_NETWORK)
+        .build()
     private val _snapshot = MutableStateFlow(PlaybackSnapshot(loading = true))
     override val snapshot: StateFlow<PlaybackSnapshot> = _snapshot.asStateFlow()
 

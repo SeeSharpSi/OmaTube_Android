@@ -33,9 +33,11 @@ and Watch Next cards.
   metadata), which is the intended card content without the empty stretched
   region. No arbitrary grid normalization was applied; feed/history/Watch Next
   each keep the delegate behavior their QML source defines.
-- Watch Next keeps the grid in both UIs. Simple UI keeps the top `(n/25)`
-  header; Full UI drops the top header and shows `(n/25)` beside the bottom-bar
-  title.
+- Current behavior: Full UI keeps Watch Next as an inset card grid with `(n/25)`
+  adjacent to the bottom-bar title. Simple UI uses title-only Watch
+  Next rows, keeps `(n/25)` in its title row, and places move/remove queue
+  controls inline. Full History also uses an edge-to-edge card grid; its cards
+  keep intrinsic height rather than stretching to fill a single grid row.
 
 ## Fonts
 

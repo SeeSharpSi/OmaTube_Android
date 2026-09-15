@@ -1,17 +1,15 @@
 package dev.omatube.app.ui.player
 
+import android.Manifest
 import android.app.Activity
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
+import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,15 +64,13 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import dev.omatube.app.backend.VideoBackend
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.Video
+import dev.omatube.app.player.PlaybackService
 import dev.omatube.app.player.PlayerController
 import dev.omatube.app.player.PlayerUiState
 import dev.omatube.app.ui.theme.OmaColors
@@ -109,27 +105,123 @@ fun PlayerScreen(
     val currentOnReportPlayback = rememberUpdatedState(onReportPlayback)
     val currentOnPlayingChanged = rememberUpdatedState(onPlayingChanged)
 
-    val controller = remember(video.id, automation) {
-        PlayerController(
-            context = context.applicationContext,
+    // Automation keeps a local controller that never touches the service,
+    // network or real media. Real playback is owned by PlaybackService so it
+    // survives Activity stop, screen lock and Home.
+    val localController = if (automation) {
+        remember(video.id, automation) {
+            PlayerController(
+                context = context.applicationContext,
+                video = video,
+                initialSettings = settings,
+                backend = backend,
+                automation = true,
+                onSettingsChange = { currentOnSettingsChange.value(it) },
+                onReportPlayback = { id, position, delta, newSession ->
+                    currentOnReportPlayback.value(id, position, delta, newSession)
+                },
+                scope = scope,
+            )
+        }
+    } else {
+        null
+    }
+
+    DisposableEffect(localController) {
+        if (localController == null) {
+            onDispose { }
+        } else {
+            localController.start()
+            onDispose { localController.release() }
+        }
+    }
+
+    LaunchedEffect(localController, settings) {
+        localController?.updateSettings(settings)
+    }
+
+    val serviceController by PlaybackService.controller.collectAsState()
+
+    LaunchedEffect(video.id, automation) {
+        if (!automation) {
+            ContextCompat.startForegroundService(
+                context,
+                PlaybackService.startIntent(context, video, settings),
+            )
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+    LaunchedEffect(video.id, automation) {
+        if (!automation && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    BackHandler(onBack = onClose)
+
+    // Only adopt the service controller once it owns the requested video; a
+    // stale controller from a previous selection must not render or accept
+    // input while the new start is in flight.
+    val controller = localController ?: serviceController?.takeIf { it.videoId == video.id }
+    if (controller == null) {
+        PlayerStartingSurface(settings = settings)
+    } else {
+        PlayerContent(
             video = video,
-            initialSettings = settings,
-            backend = backend,
+            settings = settings,
             automation = automation,
-            onSettingsChange = { currentOnSettingsChange.value(it) },
-            onReportPlayback = { id, position, delta, newSession ->
-                currentOnReportPlayback.value(id, position, delta, newSession)
-            },
-            scope = scope,
+            controller = controller,
+            activity = activity,
+            onClose = onClose,
+            onPlayingChanged = { playing -> currentOnPlayingChanged.value(playing) },
         )
     }
+}
 
-    LaunchedEffect(settings) { controller.updateSettings(settings) }
-    DisposableEffect(controller) {
-        controller.start()
-        onDispose { controller.release() }
+/**
+ * Black surface with the themed loading frame shown while the service-owned
+ * controller is being constructed. Once [PlaybackService.controller] emits,
+ * the full player chrome renders with the same UI as automation.
+ */
+@Composable
+private fun PlayerStartingSurface(settings: Settings) {
+    val colors = remember(settings.themeId) { OmaColors.forTheme(settings.themeId) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(androidx.compose.ui.graphics.Color.Black),
+    ) {
+        PlayerCenterOverlay(
+            state = PlayerUiState(loading = true),
+            colors = colors,
+            chromeVisible = true,
+            onTogglePlay = {},
+            modifier = Modifier.fillMaxSize(),
+        )
     }
+}
 
+@Composable
+private fun PlayerContent(
+    video: Video,
+    settings: Settings,
+    automation: Boolean,
+    controller: PlayerController,
+    activity: Activity?,
+    onClose: () -> Unit,
+    onPlayingChanged: (Boolean) -> Unit,
+) {
+    val currentOnPlayingChanged = rememberUpdatedState(onPlayingChanged)
+    val scope = rememberCoroutineScope()
     val state by controller.uiState.collectAsState()
     val colors = remember(settings.themeId) { OmaColors.forTheme(settings.themeId) }
     val configuration = LocalConfiguration.current
@@ -143,10 +235,7 @@ fun PlayerScreen(
         onDispose { currentOnPlayingChanged.value(false) }
     }
 
-    BackHandler(onBack = onClose)
-
     PlayerSystemEffects(activity = activity, playing = state.playing)
-    PlayerLifecycleEffects(activity = activity, controller = controller)
 
     var chromeVisible by remember { mutableStateOf(true) }
     var scrubbing by remember { mutableStateOf(false) }
@@ -667,68 +756,6 @@ private fun PlayerSystemEffects(activity: Activity?, playing: Boolean) {
         }
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-    }
-}
-
-@Composable
-private fun PlayerLifecycleEffects(activity: Activity?, controller: PlayerController) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, activity, controller) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                // PiP keeps the activity resumed; only pause on a real
-                // background transition.
-                if (activity?.isInPictureInPictureMode != true) {
-                    controller.onBackground()
-                }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    DisposableEffect(activity, controller) {
-        val owner = activity
-        if (owner == null) {
-            onDispose { }
-        } else {
-            val audioManager = owner.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val attributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                .build()
-            val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(attributes)
-                .setOnAudioFocusChangeListener { change ->
-                    when (change) {
-                        AudioManager.AUDIOFOCUS_LOSS,
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                        -> controller.pauseIfPlaying()
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK ->
-                            controller.setDucked(true)
-                        AudioManager.AUDIOFOCUS_GAIN -> controller.setDucked(false)
-                    }
-                }
-                .build()
-            audioManager.requestAudioFocus(focusRequest)
-
-            val noisyReceiver = object : BroadcastReceiver() {
-                override fun onReceive(context: Context?, intent: Intent?) {
-                    controller.pauseIfPlaying()
-                }
-            }
-            ContextCompat.registerReceiver(
-                owner,
-                noisyReceiver,
-                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
-                ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
-
-            onDispose {
-                runCatching { owner.unregisterReceiver(noisyReceiver) }
-                audioManager.abandonAudioFocusRequest(focusRequest)
-            }
         }
     }
 }

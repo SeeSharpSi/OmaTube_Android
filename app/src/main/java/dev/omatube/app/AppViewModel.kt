@@ -11,6 +11,7 @@ import dev.omatube.app.model.Channel
 import dev.omatube.app.model.LibrarySnapshot
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.Video
+import dev.omatube.app.player.PlaybackService
 import dev.omatube.app.refresh.RefreshCoordinator
 import dev.omatube.app.refresh.RefreshProgress
 import dev.omatube.app.ui.library.ALL_CATEGORY_ID
@@ -166,6 +167,11 @@ class AppViewModel(
     }
 
     fun closePlayer() {
+        // The real player is service-owned; stop it before the route closes so
+        // an explicit close also releases the controller and notification.
+        if (!graph.automation) {
+            PlaybackService.stop(appContext)
+        }
         selectedVideoId = null
         manualVideo = null
         persistState()
@@ -629,8 +635,14 @@ class AppViewModel(
         if (updated.shortVideoCutoffMinutes != base.shortVideoCutoffMinutes) {
             result = result.copy(shortVideoCutoffMinutes = updated.shortVideoCutoffMinutes)
         }
-        if (updated.maximumVideoHeight != base.maximumVideoHeight) {
-            result = result.copy(maximumVideoHeight = updated.maximumVideoHeight)
+        if (updated.wifiMaximumVideoHeight != base.wifiMaximumVideoHeight) {
+            result = result.copy(wifiMaximumVideoHeight = updated.wifiMaximumVideoHeight)
+        }
+        if (updated.dataMaximumVideoHeight != base.dataMaximumVideoHeight) {
+            result = result.copy(dataMaximumVideoHeight = updated.dataMaximumVideoHeight)
+        }
+        if (updated.lastUsedVideoHeight != base.lastUsedVideoHeight) {
+            result = result.copy(lastUsedVideoHeight = updated.lastUsedVideoHeight)
         }
         if (updated.playbackVolume != base.playbackVolume) {
             result = result.copy(playbackVolume = updated.playbackVolume)

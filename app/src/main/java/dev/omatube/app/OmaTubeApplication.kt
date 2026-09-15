@@ -2,6 +2,7 @@ package dev.omatube.app
 
 import android.app.Application
 import dev.omatube.app.automation.AutomationLaunch
+import dev.omatube.app.player.PlaybackService
 
 /**
  * Owns the single process-wide [AppGraph].
@@ -44,6 +45,7 @@ class OmaTubeApplication : Application() {
         val existing = graph
         if (launch == null) {
             if (existing != null && !existing.automation && !existing.isClosed) return false
+            if (existing != null) stopActivePlayback()
             existing?.close()
             graph = AppGraph.production(this)
             automationLaunch = null
@@ -56,6 +58,7 @@ class OmaTubeApplication : Application() {
         ) {
             return false
         }
+        if (existing != null) stopActivePlayback()
         existing?.close()
         graph = AppGraph.automation(
             context = this,
@@ -64,6 +67,16 @@ class OmaTubeApplication : Application() {
         )
         automationLaunch = launch
         return true
+    }
+
+    /**
+     * Debug graph-switch safety: a graph replacement changes the backend,
+     * repository and settings store, so any service-owned real playback must be
+     * released before the graph it depends on is closed. Preserving the same
+     * graph never reaches this path.
+     */
+    internal fun stopActivePlayback() {
+        PlaybackService.stop(this)
     }
 
     override fun onTerminate() {

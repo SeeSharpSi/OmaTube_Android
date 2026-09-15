@@ -12,20 +12,24 @@ license locations.
 
 ## What it does
 
-- Full UI with thumbnail cards and Simple UI with a text feed and history rows,
-  switchable at runtime. Both reuse the desktop Default, Rose Pine and Nord
+- Full UI with thumbnail feed/history/Watch Next cards and Simple UI with
+  title-row presentations for Feed, History and Watch Next, switchable at
+  runtime. Both reuse the desktop Default, Rose Pine and Nord
   palettes with no Material or dynamic-color theming.
-- Full UI draws edge to edge: its palette background paints behind the status
-  and gesture navigation bars, feed cards and the accent dividers reach the
-  safe-area edges on phones while ordinary chrome keeps a 20 dp container inset
-  (the Watch Next and History grids retain their own internal padding), and
-  refresh status plus errors appear as transient top-right notices that
-  auto-hide and dismiss on tap. Simple UI keeps its previous insets, headers and
+- Full UI draws edge to edge on phones: its palette background paints behind the
+  status and gesture navigation bars, feed/history cards and accent dividers
+  reach safe-area edges, while the Watch Next grid and ordinary chrome keep
+  their container insets. Simple Feed, History and Watch Next use title rows;
+  Settings and bottom navigation use Normal UI chrome, fonts and geometry in
+  both modes.
+  Watch Next count sits adjacent to its title in Full UI. Refresh status and
+  errors appear as transient top-right notices in Full UI; Simple UI keeps its
   bottom-anchored notices.
 - Bundled JetBrains Mono Nerd Font and Liberation Sans faces, matching the fonts
   the desktop build resolves on its host.
 - Custom player chrome with seek, play/pause, mute, volume, speed, fullscreen,
-  a per-video quality override and a global preferred maximum height. In
+  a per-video quality override, separate Wi-Fi and Data preferred maximums, and
+  a shared Last used height. In
   portrait the top and bottom controls bracket an aspect-fitted video without
   resizing it when the chrome hides; loading stays visible without the chrome,
   a center transport appears in the normal state, and the live scrub timestamp
@@ -43,9 +47,11 @@ license locations.
   fetching allowed below a 9 MiB soft limit. Past the limit the oldest videos
   are pruned first in, first out while watch statistics are kept.
 
-The app has no account login, no subscription sync, no download manager and no
-background playback service. Playback pauses when the app leaves the foreground;
-picture-in-picture is entered only when a real video is already playing.
+The app has no account login, no subscription sync and no download manager.
+Foreground media playback continues with the display off or Activity in the
+background. Android exposes a MediaStyle notification with play/pause controls;
+notification permission is requested where the platform requires it. Picture-
+in-picture is entered only when a real video is already playing.
 
 ## Data sources
 

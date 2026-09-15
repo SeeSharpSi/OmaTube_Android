@@ -1,7 +1,15 @@
 package dev.omatube.app.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -73,7 +81,7 @@ class DataStoreSettingsStoreRecoveryTest {
 
         val first = DataStoreSettingsStore(context, false, fileName, storage, FakeApiKeyCipher(fail = false))
         first.update {
-            it.copy(themeId = "rose-pine", maximumVideoHeight = 720, apiKey = "secret", rememberApiKey = true)
+            it.copy(themeId = "rose-pine", wifiMaximumVideoHeight = 720, apiKey = "secret", rememberApiKey = true)
         }
         first.closeAndJoin()
 
@@ -83,7 +91,7 @@ class DataStoreSettingsStoreRecoveryTest {
             assertFalse(recovered.rememberApiKey)
             assertEquals("", recovered.apiKey)
             assertEquals("rose-pine", recovered.themeId)
-            assertEquals(720, recovered.maximumVideoHeight)
+            assertEquals(720, recovered.wifiMaximumVideoHeight)
             assertNull(storage.read())
             assertNotNull(second.recoveryNotice.first())
         } finally {
@@ -111,6 +119,64 @@ class DataStoreSettingsStoreRecoveryTest {
             assertEquals("secret", store.settings.first().apiKey)
         } finally {
             store.closeAndJoin()
+        }
+    }
+
+    @Test
+    fun legacyMaximumHeightSeedsBothPreferencesAndLastUsed() = runBlocking {
+        val fileName = newFileName()
+        seedLegacyMaximumHeight(fileName, 720)
+
+        val store = DataStoreSettingsStore(
+            context,
+            false,
+            fileName,
+            FakeApiKeyStorage(),
+            FakeApiKeyCipher(fail = false),
+        )
+        try {
+            val migrated = store.settings.first()
+            assertEquals(720, migrated.wifiMaximumVideoHeight)
+            assertEquals(720, migrated.dataMaximumVideoHeight)
+            assertEquals(720, migrated.lastUsedVideoHeight)
+        } finally {
+            store.closeAndJoin()
+        }
+    }
+
+    @Test
+    fun legacyMaximumHeightNormalizesUnknownValuesToAuto() = runBlocking {
+        val fileName = newFileName()
+        seedLegacyMaximumHeight(fileName, 1234)
+
+        val store = DataStoreSettingsStore(
+            context,
+            false,
+            fileName,
+            FakeApiKeyStorage(),
+            FakeApiKeyCipher(fail = false),
+        )
+        try {
+            val migrated = store.settings.first()
+            assertEquals(0, migrated.wifiMaximumVideoHeight)
+            assertEquals(0, migrated.dataMaximumVideoHeight)
+            assertEquals(0, migrated.lastUsedVideoHeight)
+        } finally {
+            store.closeAndJoin()
+        }
+    }
+
+    private fun seedLegacyMaximumHeight(fileName: String, value: Int) {
+        runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            val directory = File(context.filesDir, "datastore").also { it.mkdirs() }
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
+                File(directory, "$fileName.preferences_pb")
+            }
+            dataStore.edit { preferences ->
+                preferences[intPreferencesKey("maximum_video_height")] = value
+            }
+            scope.coroutineContext[Job]?.cancelAndJoin()
         }
     }
 }

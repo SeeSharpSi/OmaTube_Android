@@ -16,9 +16,11 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
@@ -132,8 +134,14 @@ class LibraryScreenTest {
                     )
                 }
                 if (windowWidth != null) {
-                    Box(modifier = Modifier.width(windowWidth).fillMaxHeight()) {
-                        screen()
+                    // A horizontally scrollable viewport lets a test request a
+                    // window wider than the physical device without the parent
+                    // constraints clamping it, so wide-layout geometry can be
+                    // measured off-screen.
+                    Box(modifier = Modifier.fillMaxHeight().horizontalScroll(rememberScrollState())) {
+                        Box(modifier = Modifier.width(windowWidth).fillMaxHeight()) {
+                            screen()
+                        }
                     }
                 } else {
                     screen()
@@ -279,6 +287,41 @@ class LibraryScreenTest {
         rule.onNodeWithText("WATCH NEXT (2/25)").assertExists()
         rule.onNodeWithTag("libraryTitle").assertTextEquals("Watch Next")
         rule.onNodeWithTag("watchNextCount").assertDoesNotExist()
+        // Simple Watch Next is title-only rows, never the full-UI card grid.
+        rule.onNodeWithTag("watchNextList").assertExists()
+        rule.onNodeWithTag("watchNextGrid").assertDoesNotExist()
+        rule.onNodeWithText("Second").assertExists()
+    }
+
+    @Test
+    fun simpleWatchNextRowsKeepQueueMoveAndRemove() {
+        val moves = mutableListOf<Pair<String, Int>>()
+        val removed = mutableListOf<String>()
+        setContent(
+            "watchnext",
+            simpleUi = true,
+            onRemoveWatchNext = { removed.add(it) },
+            onMoveWatchNext = { id, index -> moves.add(id to index) },
+        )
+        // Simple rows keep the same automation tags and queue semantics as the
+        // full cards, just as title-only content.
+        rule.onNodeWithTag("watchNextVideo_v2").assertExists()
+        rule.onNodeWithTag("watchNextVideo_v1").assertExists()
+        rule.onNodeWithTag("watchNextUp_v1").performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("v1" to 0), moves)
+        rule.onNodeWithTag("watchNextRemove_v1").performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("v1"), removed)
+    }
+
+    @Test
+    fun tappingSimpleWatchNextRowOpensVideo() {
+        val opened = mutableListOf<Video>()
+        setContent("watchnext", simpleUi = true, onOpenVideo = { opened.add(it) })
+        rule.onNodeWithTag("watchNextVideo_v1").performTouchInput { click() }
+        rule.waitForIdle()
+        assertEquals(listOf(first), opened)
     }
 
     @Test
@@ -594,6 +637,110 @@ class LibraryScreenTest {
             "refresh button right edge must stay inside the window",
             refresh.right.value <= window.right.value + 1f,
         )
+    }
+
+    @Test
+    fun fullWatchNextCountStaysAdjacentToTitleAwayFromNav() {
+        // Wide window makes the old weighted-title bug obvious: the count used
+        // to sit at the far right of the weighted group, next to navigation.
+        setContent("watchnext", windowWidth = 800.dp)
+        val window = bounds("appWindow")
+        val title = bounds("libraryTitle")
+        val count = bounds("watchNextCount")
+        val firstNav = bounds("feedNavigationButton")
+        assertTrue(
+            "title must stay near the left edge",
+            title.left.value - window.left.value <= 25f,
+        )
+        assertTrue(
+            "count must follow the title immediately (6 dp gap)",
+            count.left.value - title.right.value <= 10f,
+        )
+        assertTrue(
+            "count must not sit beside the navigation buttons",
+            count.right.value < firstNav.left.value - 100f,
+        )
+    }
+
+    @Test
+    fun fullWatchNextCountStaysVisibleAtNarrowWidthAndCap() {
+        // 360 dp phone and a full queue: the unweighted count must reserve its
+        // width and stay visible/adjacent while the title ellipsizes.
+        val capped = library.copy(
+            watchNext = (1..WATCH_NEXT_CAP).map { index ->
+                first.copy(id = "cap$index", title = "Capped video $index")
+            },
+        )
+        setContent("watchnext", snapshot = capped, windowWidth = 360.dp)
+        rule.onNodeWithTag("watchNextCount").assertTextEquals("(25/25)")
+        val window = bounds("appWindow")
+        val title = bounds("libraryTitle")
+        val count = bounds("watchNextCount")
+        val firstNav = bounds("feedNavigationButton")
+        assertTrue("count starts inside the window", count.left.value >= window.left.value - 1f)
+        assertTrue("count ends inside the window", count.right.value <= window.right.value + 1f)
+        assertTrue(
+            "count must follow the ellipsized title immediately",
+            count.left.value - title.right.value <= 10f,
+        )
+        assertTrue(
+            "count must stay clear of the navigation buttons",
+            count.right.value <= firstNav.left.value + 1f,
+        )
+    }
+
+    @Test
+    fun fullHistoryCardReachesWindowEdges() {
+        setContent("history")
+        assertSpansWindowWidth("historyVideo_v1")
+    }
+
+    @Test
+    fun simpleBottomNavigationMatchesFullGeometry() {
+        setContent("feed", simpleUi = true)
+        // Same 38 dp squares as the full bar.
+        assertSize("feedNavigationButton", widthDp = 38f, heightDp = 38f)
+        assertSize("watchNextNavigationButton", widthDp = 38f, heightDp = 38f)
+        assertSize("historyNavigationButton", widthDp = 38f, heightDp = 38f)
+        assertSize("settingsNavigationButton", widthDp = 38f, heightDp = 38f)
+        assertSize("refreshButton", widthDp = 38f, heightDp = 38f)
+        // Absolute window geometry: the Simple bar must span the window and the
+        // 20 dp internal inset plus 222 dp cluster must match Normal exactly.
+        val window = bounds("appWindow")
+        val bar = bounds("bottomNavigationBar")
+        val first = bounds("feedNavigationButton")
+        val last = bounds("refreshButton")
+        assertTrue(
+            "bar must start flush with the window left",
+            abs(bar.left.value - window.left.value) <= 1f,
+        )
+        assertTrue(
+            "bar must end flush with the window right",
+            abs(bar.right.value - window.right.value) <= 1f,
+        )
+        assertTrue(
+            "refresh button must keep Normal's absolute 20 dp right inset",
+            abs((window.right.value - last.right.value) - 20f) <= 1f,
+        )
+        assertTrue(
+            "navigation cluster must keep Normal's absolute right placement",
+            abs((window.right.value - first.left.value) - 242f) <= 2f,
+        )
+    }
+
+    @Test
+    fun simpleRefreshShowsBrailleSpinnerLikeFull() {
+        withFrozenClock {
+            setContent("feed", simpleUi = true, refreshing = true)
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("refreshButton").assertExists()
+            rule.onNodeWithTag("refreshButton").assertIsNotEnabled()
+            assertEquals(
+                "simple loading refresh must render one braille spinner frame",
+                1,
+                refreshBrailleFrameCount(),
+            )
+        }
     }
 
     // ---- Error banner dismissal -------------------------------------------

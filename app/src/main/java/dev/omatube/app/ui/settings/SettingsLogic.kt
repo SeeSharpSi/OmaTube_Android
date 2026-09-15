@@ -2,6 +2,7 @@ package dev.omatube.app.ui.settings
 
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.SponsorAction
+import dev.omatube.app.player.PlaybackQuality
 
 /**
  * Pure, Compose-free settings logic so behavior can be unit tested without a
@@ -14,9 +15,11 @@ internal object SettingsLogic {
     const val CUTOFF_MIN = 0
     const val CUTOFF_MAX = 60
 
-    /** Auto plus the exact maximum heights offered by the desktop Playback tab. */
-    val qualityValues: List<Int> = listOf(0, 2160, 1440, 1080, 720, 480, 360)
-    val qualityLabels: List<String> = listOf("Auto", "2160p", "1440p", "1080p", "720p", "480p", "360p")
+    /** Last used plus the Auto and fixed maximum heights offered by Playback. */
+    val qualityValues: List<Int> =
+        listOf(PlaybackQuality.LAST_USED, PlaybackQuality.AUTO) + PlaybackQuality.HEIGHTS
+    val qualityLabels: List<String> =
+        listOf("Last used", "Auto") + PlaybackQuality.HEIGHTS.map { "${it}p" }
 
     val sponsorActionLabels: List<String> = listOf("Nothing", "Manual skip", "Auto skip")
 
@@ -36,7 +39,10 @@ internal object SettingsLogic {
 
     fun themeIndex(themeId: String): Int = SettingsThemes.ids.indexOf(themeId).coerceAtLeast(0)
 
-    fun qualityIndex(height: Int): Int = qualityValues.indexOf(height).coerceAtLeast(0)
+    fun qualityIndex(height: Int): Int {
+        val index = qualityValues.indexOf(height)
+        return if (index >= 0) index else qualityValues.indexOf(PlaybackQuality.AUTO).coerceAtLeast(0)
+    }
 
     fun clampCutoff(minutes: Int): Int = minutes.coerceIn(CUTOFF_MIN, CUTOFF_MAX)
 
@@ -73,8 +79,11 @@ internal object SettingsLogic {
     fun withSimpleUi(settings: Settings, simpleUi: Boolean): Settings =
         settings.copy(simpleUi = simpleUi)
 
-    fun withQuality(settings: Settings, height: Int): Settings =
-        settings.copy(maximumVideoHeight = height)
+    fun withWifiMaximum(settings: Settings, height: Int): Settings =
+        settings.copy(wifiMaximumVideoHeight = height)
+
+    fun withDataMaximum(settings: Settings, height: Int): Settings =
+        settings.copy(dataMaximumVideoHeight = height)
 
     fun withSponsorEnabled(settings: Settings, enabled: Boolean): Settings =
         settings.copy(sponsorBlockEnabled = enabled)

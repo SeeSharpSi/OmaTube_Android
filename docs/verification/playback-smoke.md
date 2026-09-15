@@ -14,11 +14,14 @@ regression history, then records the final verified outcome.
   - launches a standalone `androidx.activity.ComponentActivity` (declared
     exported by the Compose test manifest). `MainActivity` and the production
     `AppGraph` are never started;
-  - the only backend is `NewPipeBackend(context) { Settings(maximumVideoHeight = 720) }`:
+  - the only backend is `NewPipeBackend(context) { Settings(wifiMaximumVideoHeight = 720, dataMaximumVideoHeight = 720, lastUsedVideoHeight = 720) }`:
     no Room database, no repository, no YouTube Data API key, no login;
   - builds the real `PlayerController` with `automation = false`, which creates
     the real `ExoPlaybackEngine` and `MediaSourceResolver`, and renders through a
     real Media3 `PlayerView` surface;
+  - this existing opt-in smoke exercises `PlayerController` directly. It does
+    not validate `PlaybackService`, foreground-service behavior, MediaStyle
+    notification actions or Activity/background transitions;
   - verifies: buffering then `STATE_READY`/`isPlaying`, the video renderer's
     first frame (`Player.Listener.onRenderedFirstFrame`), simultaneous selected
     video+audio tracks (AV merge), decoded height versus the 720 maximum, a

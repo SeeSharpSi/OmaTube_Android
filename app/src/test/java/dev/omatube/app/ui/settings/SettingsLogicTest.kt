@@ -2,6 +2,7 @@ package dev.omatube.app.ui.settings
 
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.SponsorAction
+import dev.omatube.app.player.PlaybackQuality
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -24,19 +25,32 @@ class SettingsLogicTest {
 
     @Test
     fun qualityValuesMatchDesktopOrder() {
-        assertEquals(listOf(0, 2160, 1440, 1080, 720, 480, 360), SettingsLogic.qualityValues)
+        assertEquals(listOf(-2, 0, 2160, 1440, 1080, 720, 480, 360), SettingsLogic.qualityValues)
         assertEquals(
-            listOf("Auto", "2160p", "1440p", "1080p", "720p", "480p", "360p"),
+            listOf("Last used", "Auto", "2160p", "1440p", "1080p", "720p", "480p", "360p"),
             SettingsLogic.qualityLabels,
         )
     }
 
     @Test
     fun qualityIndexFallsBackToAuto() {
-        assertEquals(0, SettingsLogic.qualityIndex(0))
-        assertEquals(1, SettingsLogic.qualityIndex(2160))
-        assertEquals(6, SettingsLogic.qualityIndex(360))
-        assertEquals(0, SettingsLogic.qualityIndex(9999))
+        assertEquals(0, SettingsLogic.qualityIndex(PlaybackQuality.LAST_USED))
+        assertEquals(1, SettingsLogic.qualityIndex(0))
+        assertEquals(2, SettingsLogic.qualityIndex(2160))
+        assertEquals(7, SettingsLogic.qualityIndex(360))
+        assertEquals(1, SettingsLogic.qualityIndex(9999))
+    }
+
+    @Test
+    fun withWifiAndDataMaximumSetTheirOwnFields() {
+        val original = Settings(wifiMaximumVideoHeight = 1080, dataMaximumVideoHeight = 480)
+        val wifi = SettingsLogic.withWifiMaximum(original, PlaybackQuality.LAST_USED)
+        assertEquals(PlaybackQuality.LAST_USED, wifi.wifiMaximumVideoHeight)
+        assertEquals(480, wifi.dataMaximumVideoHeight)
+
+        val data = SettingsLogic.withDataMaximum(original, 360)
+        assertEquals(1080, data.wifiMaximumVideoHeight)
+        assertEquals(360, data.dataMaximumVideoHeight)
     }
 
     @Test

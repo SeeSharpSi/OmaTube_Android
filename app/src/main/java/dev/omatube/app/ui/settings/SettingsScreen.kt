@@ -71,10 +71,12 @@ fun SettingsScreen(
     onExport: (Uri, Boolean) -> Unit,
     onDismissError: () -> Unit,
 ) {
-    val simpleUi = settings.simpleUi
-    val chrome = !simpleUi
-    val palette = remember(settings.themeId, simpleUi) {
-        SettingsPalette.forTheme(settings.themeId, simpleUi)
+    // Settings always renders the Normal UI chrome, fonts and sizing. The
+    // `simpleUi` checkbox still switches the rest of the app, but this page no
+    // longer branches on it.
+    val chrome = true
+    val palette = remember(settings.themeId) {
+        SettingsPalette.forTheme(settings.themeId, simpleUi = false)
     }
     var selectedTab by rememberSaveable { mutableStateOf(0) }
     var confirmRequest by remember { mutableStateOf<ConfirmRequest?>(null) }
@@ -106,7 +108,6 @@ fun SettingsScreen(
         SettingsHeader(
             palette = palette,
             chrome = chrome,
-            simpleUi = simpleUi,
             onClose = onClose,
         )
         Box(
@@ -119,7 +120,7 @@ fun SettingsScreen(
                 selectedIndex = selectedTab,
                 palette = palette,
                 chrome = chrome,
-                height = if (simpleUi) 48.dp else 44.dp,
+                height = 44.dp,
                 onSelect = { selectedTab = it },
             )
         }
@@ -795,7 +796,7 @@ private fun PlaybackTab(
         }
 
         SettingsSectionLabel(
-            text = "Preferred maximum quality",
+            text = "Preferred maximum quality - Wi-Fi",
             palette = palette,
             chrome = false,
             fontSize = 13.sp,
@@ -803,16 +804,38 @@ private fun PlaybackTab(
 
         SettingsDropdown(
             options = SettingsLogic.qualityLabels,
-            selectedIndex = SettingsLogic.qualityIndex(settings.maximumVideoHeight),
+            selectedIndex = SettingsLogic.qualityIndex(settings.wifiMaximumVideoHeight),
             palette = palette,
-            testTag = "qualitySelector",
+            testTag = "wifiQualitySelector",
             onSelect = { index ->
-                onSettingsChange(SettingsLogic.withQuality(settings, SettingsLogic.qualityValues[index]))
+                onSettingsChange(
+                    SettingsLogic.withWifiMaximum(settings, SettingsLogic.qualityValues[index]),
+                )
+            },
+        )
+
+        SettingsSectionLabel(
+            text = "Preferred maximum quality - Data",
+            palette = palette,
+            chrome = false,
+            fontSize = 13.sp,
+        )
+
+        SettingsDropdown(
+            options = SettingsLogic.qualityLabels,
+            selectedIndex = SettingsLogic.qualityIndex(settings.dataMaximumVideoHeight),
+            palette = palette,
+            testTag = "dataQualitySelector",
+            onSelect = { index ->
+                onSettingsChange(
+                    SettingsLogic.withDataMaximum(settings, SettingsLogic.qualityValues[index]),
+                )
             },
         )
 
         BasicText(
-            text = "ExoPlayer picks the closest available quality at or below this maximum.",
+            text = "ExoPlayer picks the closest available quality at or below this maximum. " +
+                "Last used follows the most recent in-player quality choice.",
             style = settingsTextStyle(palette.mutedInk, chrome = false, fontSize = 12.sp),
         )
 

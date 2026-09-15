@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">OmaTube</string>
+    <string name="playback_channel_name">Playback</string>
+    <string name="playback_channel_description">Media playback controls</string>
+    <string name="notification_action_play">Play</string>
+    <string name="notification_action_pause">Pause</string>
+    <string name="notification_loading">Loading media...</string>
 </resources>

@@ -529,14 +529,13 @@ private fun StepperButton(
 internal fun SettingsHeader(
     palette: SettingsPalette,
     chrome: Boolean,
-    simpleUi: Boolean,
     modifier: Modifier = Modifier,
     onClose: () -> Unit,
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(if (simpleUi) 64.dp else 62.dp)
+            .height(62.dp)
             .background(palette.panel),
     ) {
         BasicText(
@@ -544,7 +543,7 @@ internal fun SettingsHeader(
             style = settingsTextStyle(
                 color = palette.ink,
                 chrome = chrome,
-                fontSize = if (simpleUi) 21.sp else 17.sp,
+                fontSize = 17.sp,
                 weight = FontWeight.SemiBold,
                 letterSpacing = if (chrome) 1.4.sp else 0.sp,
             ),

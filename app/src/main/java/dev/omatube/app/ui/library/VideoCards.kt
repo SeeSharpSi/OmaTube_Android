@@ -210,6 +210,7 @@ fun SimpleVideoRow(
     metaText: String,
     onOpen: () -> Unit,
     onLongPress: (() -> Unit)? = null,
+    controls: (@Composable () -> Unit)? = null,
 ) {
     val colors = LocalOmaColors.current
     val interaction = remember { MutableInteractionSource() }
@@ -281,6 +282,10 @@ fun SimpleVideoRow(
                         weight = FontWeight.SemiBold,
                     )
                 }
+            }
+            if (controls != null) {
+                Spacer(Modifier.height(10.dp))
+                controls()
             }
         }
         Box(

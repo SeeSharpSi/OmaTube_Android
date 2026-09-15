@@ -3,6 +3,7 @@ package dev.omatube.app.data
 import androidx.test.core.app.ApplicationProvider
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.SponsorAction
+import dev.omatube.app.player.PlaybackQuality
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
@@ -35,7 +36,9 @@ class DataStoreSettingsStoreTest {
         assertEquals("default", settings.themeId)
         assertFalse(settings.simpleUi)
         assertEquals(3, settings.shortVideoCutoffMinutes)
-        assertEquals(0, settings.maximumVideoHeight)
+        assertEquals(0, settings.wifiMaximumVideoHeight)
+        assertEquals(0, settings.dataMaximumVideoHeight)
+        assertEquals(0, settings.lastUsedVideoHeight)
         assertEquals(100, settings.playbackVolume)
         assertFalse(settings.sponsorBlockEnabled)
         assertTrue(settings.sponsorActions.isEmpty())
@@ -50,7 +53,9 @@ class DataStoreSettingsStoreTest {
                 themeId = "nord",
                 simpleUi = true,
                 shortVideoCutoffMinutes = 8,
-                maximumVideoHeight = 720,
+                wifiMaximumVideoHeight = 1080,
+                dataMaximumVideoHeight = 480,
+                lastUsedVideoHeight = 720,
                 playbackVolume = 40,
                 sponsorBlockEnabled = true,
                 sponsorActions = mapOf("sponsor" to SponsorAction.AUTO, "intro" to SponsorAction.MANUAL),
@@ -62,12 +67,29 @@ class DataStoreSettingsStoreTest {
         assertEquals("nord", settings.themeId)
         assertTrue(settings.simpleUi)
         assertEquals(8, settings.shortVideoCutoffMinutes)
-        assertEquals(720, settings.maximumVideoHeight)
+        assertEquals(1080, settings.wifiMaximumVideoHeight)
+        assertEquals(480, settings.dataMaximumVideoHeight)
+        assertEquals(720, settings.lastUsedVideoHeight)
         assertEquals(40, settings.playbackVolume)
         assertTrue(settings.sponsorBlockEnabled)
         assertEquals(SponsorAction.AUTO, settings.sponsorActions["sponsor"])
         assertEquals(SponsorAction.MANUAL, settings.sponsorActions["intro"])
         assertEquals(1080, settings.videoQualityOverrides["video-a"])
+    }
+
+    @Test
+    fun lastUsedConnectionPreferenceIsAccepted() = runBlocking {
+        store.update {
+            it.copy(
+                wifiMaximumVideoHeight = PlaybackQuality.LAST_USED,
+                dataMaximumVideoHeight = PlaybackQuality.LAST_USED,
+                lastUsedVideoHeight = 1440,
+            )
+        }
+        val settings = store.settings.first()
+        assertEquals(PlaybackQuality.LAST_USED, settings.wifiMaximumVideoHeight)
+        assertEquals(PlaybackQuality.LAST_USED, settings.dataMaximumVideoHeight)
+        assertEquals(1440, settings.lastUsedVideoHeight)
     }
 
     @Test
@@ -129,7 +151,16 @@ class DataStoreSettingsStoreTest {
             store.update { it.copy(shortVideoCutoffMinutes = 61) }
         }
         expectFailure(IllegalArgumentException::class.java) {
-            store.update { it.copy(maximumVideoHeight = -5) }
+            store.update { it.copy(wifiMaximumVideoHeight = -5) }
+        }
+        expectFailure(IllegalArgumentException::class.java) {
+            store.update { it.copy(dataMaximumVideoHeight = -3) }
+        }
+        expectFailure(IllegalArgumentException::class.java) {
+            store.update { it.copy(lastUsedVideoHeight = -5) }
+        }
+        expectFailure(IllegalArgumentException::class.java) {
+            store.update { it.copy(lastUsedVideoHeight = PlaybackQuality.LAST_USED) }
         }
         expectFailure(IllegalArgumentException::class.java) {
             store.update { it.copy(videoQualityOverrides = mapOf("v" to -1)) }

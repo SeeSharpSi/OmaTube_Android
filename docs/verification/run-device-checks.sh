@@ -498,7 +498,7 @@ if node_present text Feed; then say "PASS back from player -> feed"; else say "F
 # ---------------------------------------------------------------------------
 start full watchnext default
 dump_ui
-if node_present text "WATCH NEXT (2/25)"; then say "PASS watch next starts at 2/25"; else say "FAIL watch next count"; fi
+if node_present text "(2/25)"; then say "PASS watch next starts at 2/25"; else say "FAIL watch next count"; fi
 tap_desc "Move down AUTO0000002"
 sleep 0.8
 snap full-watchnext-moved
@@ -506,7 +506,7 @@ tap_desc "Remove from Watch Next AUTO0000002"
 sleep 0.8
 snap full-watchnext-removed
 dump_ui
-if node_present text "WATCH NEXT (1/25)"; then say "PASS watch next remove -> 1/25"; else say "FAIL watch next remove count"; fi
+if node_present text "(1/25)"; then say "PASS watch next remove -> 1/25"; else say "FAIL watch next remove count"; fi
 
 # ---------------------------------------------------------------------------
 # Back from history, then long-press add to Watch Next
@@ -528,7 +528,7 @@ if [ -n "$THIRD" ]; then
   sleep 0.8
   snap full-watchnext-after-add
   dump_ui
-  if node_present text "WATCH NEXT (3/25)"; then say "PASS long-press add -> 3/25"; else say "FAIL long-press add count"; fi
+  if node_present text "(3/25)"; then say "PASS long-press add -> 3/25"; else say "FAIL long-press add count"; fi
 else
   say "FAIL feed card AUTO0000003 not found"
 fi

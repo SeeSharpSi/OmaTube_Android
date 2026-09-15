@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -70,8 +69,7 @@ fun HistoryContent(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = if (simple) 0.dp else 20.dp),
+                .weight(1f),
         ) {
             if (simple) {
                 SimpleHistoryList(
@@ -118,7 +116,7 @@ private fun FullHistoryGrid(
             columns = GridCells.Fixed(columns),
             state = state,
             modifier = Modifier.fillMaxSize().testTag("historyGrid"),
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
