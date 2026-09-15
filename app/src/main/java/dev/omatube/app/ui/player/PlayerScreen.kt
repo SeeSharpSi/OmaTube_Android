@@ -31,7 +31,10 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -46,6 +49,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
@@ -53,9 +58,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,6 +79,8 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import dev.omatube.app.backend.VideoBackend
 import dev.omatube.app.model.Settings
+import dev.omatube.app.model.TranscriptCue
+import dev.omatube.app.model.TranscriptWord
 import dev.omatube.app.model.Video
 import dev.omatube.app.player.PlaybackService
 import dev.omatube.app.player.PlayerController
@@ -238,14 +250,21 @@ private fun PlayerContent(
     PlayerSystemEffects(activity = activity, playing = state.playing)
 
     var chromeVisible by remember { mutableStateOf(true) }
+    var portraitCenterVisible by remember { mutableStateOf(true) }
     var scrubbing by remember { mutableStateOf(false) }
     // Bumped on every scrub contact change so releasing the seek bar restarts
     // the full idle delay instead of resuming an old countdown.
     var seekInteraction by remember { mutableIntStateOf(0) }
-    LaunchedEffect(state.playing, chromeVisible, scrubbing, seekInteraction) {
-        if (state.playing && chromeVisible && !scrubbing) {
+    LaunchedEffect(state.playing, chromeVisible, scrubbing, seekInteraction, isPortrait) {
+        if (shouldAutoHideChrome(isPortrait, state.playing, chromeVisible, scrubbing)) {
             delay(CHROME_IDLE_MS)
             chromeVisible = false
+        }
+    }
+    LaunchedEffect(state.playing, portraitCenterVisible, isPortrait) {
+        if (shouldAutoHidePortraitCenter(isPortrait, state.playing, portraitCenterVisible)) {
+            delay(CHROME_IDLE_MS)
+            portraitCenterVisible = false
         }
     }
 
@@ -286,8 +305,8 @@ private fun PlayerContent(
             .background(androidx.compose.ui.graphics.Color.Black),
     ) {
         // Landscape keeps the full-bleed surface. Portrait instead lays the
-        // surface out inside the safe container so the reserved bars can sit
-        // flush against the video viewport.
+        // surface out inside the safe container so controls and transcript can
+        // form a top-pinned stack.
         if (isLandscape) {
             PlayerSurface(
                 controller = controller,
@@ -313,7 +332,7 @@ private fun PlayerContent(
         // Controls live in their own container inset for the display cutout, so
         // the top bar and sponsor box stay clear of notches/camera cutouts in
         // immersive landscape. Portrait reuses the same container for the
-        // surface and the chrome so the stack is centered inside the safe area.
+        // surface, chrome, and transcript.
         // Only displayCutout is applied, never safeDrawing/systemBars, so the
         // hidden status bar cannot double-inset the chrome. The cutout
         // contributes only its vertical sides here; the larger of the left/right
@@ -335,6 +354,8 @@ private fun PlayerContent(
                     bottomSlotHeight = with(density) {
                         (if (compact) COMPACT_BOTTOM_HEIGHT else WIDE_BOTTOM_HEIGHT).toPx()
                     },
+                    minTranscriptHeight = with(density) { MIN_TRANSCRIPT_HEIGHT.toPx() },
+                    bottomPadding = with(density) { PORTRAIT_BOTTOM_PADDING.toPx() },
                 )
             } else {
                 null
@@ -359,55 +380,61 @@ private fun PlayerContent(
                     modifier = videoModifier,
                 )
 
-                // Above the inset surface but below the bars so the bars keep
-                // first refusal on their own taps.
+                // Portrait gesture input covers video only. Transcript remains scrollable.
                 PlayerGestureLayer(
                     controller = controller,
                     scope = scope,
-                    onToggleChrome = { chromeVisible = !chromeVisible },
-                    modifier = Modifier.fillMaxSize(),
+                    onToggleChrome = { portraitCenterVisible = !portraitCenterVisible },
+                    modifier = videoModifier,
                 )
 
-                // The reserved slots keep their height when the chrome is
-                // hidden, so the video never resizes or jumps.
-                if (chromeVisible) {
-                    Box(
-                        modifier = Modifier.offset {
-                            IntOffset(0, portraitGeometry.topSlotTop.roundToInt())
-                        },
-                    ) {
-                        PlayerTopBar(
-                            state = state,
-                            colors = colors,
-                            onClose = onClose,
-                            onQuality = controller::setQuality,
-                        )
-                    }
-                    Box(
-                        modifier = Modifier.offset {
-                            IntOffset(0, portraitGeometry.bottomSlotTop.roundToInt())
-                        },
-                    ) {
-                        PlayerBottomBar(
-                            state = state,
-                            colors = colors,
-                            compact = compact,
-                            fullscreen = isLandscape,
-                            onTogglePlay = controller::togglePlay,
-                            onSeek = controller::seekTo,
-                            onScrubbingChange = handleScrubbingChange,
-                            onToggleMute = controller::toggleMute,
-                            onLive = controller::seekToLiveEdge,
-                            onFullscreen = onFullscreen,
-                        )
-                    }
+                Box(
+                    modifier = Modifier.offset {
+                        IntOffset(0, portraitGeometry.topSlotTop.roundToInt())
+                    },
+                ) {
+                    PlayerTopBar(
+                        state = state,
+                        colors = colors,
+                        onClose = onClose,
+                        onQuality = controller::setQuality,
+                    )
                 }
+                Box(
+                    modifier = Modifier.offset {
+                        IntOffset(0, portraitGeometry.bottomSlotTop.roundToInt())
+                    },
+                ) {
+                    PlayerBottomBar(
+                        state = state,
+                        colors = colors,
+                        compact = compact,
+                        fullscreen = isLandscape,
+                        onTogglePlay = controller::togglePlay,
+                        onSeek = controller::seekTo,
+                        onScrubbingChange = handleScrubbingChange,
+                        onToggleMute = controller::toggleMute,
+                        onLive = controller::seekToLiveEdge,
+                        onFullscreen = onFullscreen,
+                    )
+                }
+                TranscriptPanel(
+                    state = state,
+                    colors = colors,
+                    onSeek = controller::seekTo,
+                    modifier = Modifier
+                        .offset { IntOffset(0, portraitGeometry.transcriptTop.roundToInt()) }
+                        .height(with(density) { portraitGeometry.transcriptHeight.toDp() }),
+                )
 
                 PlayerCenterOverlay(
                     state = state,
                     colors = colors,
-                    chromeVisible = chromeVisible,
-                    onTogglePlay = controller::togglePlay,
+                    chromeVisible = portraitCenterVisible,
+                    onTogglePlay = {
+                        controller.togglePlay()
+                        portraitCenterVisible = false
+                    },
                     modifier = videoModifier,
                 )
             } else {
@@ -468,7 +495,7 @@ private fun PlayerContent(
             )
         }
 
-        if (chromeVisible) {
+        if (chromeVisible || isPortrait) {
             PlayerOverlay(
                 state = state,
                 colors = colors,
@@ -529,20 +556,24 @@ private fun PlayerGestureLayer(
 ) {
     Box(
         modifier = modifier.pointerInput(Unit) {
+            var boosted = false
             detectTapGestures(
+                onTap = {
+                    if (!boosted) {
+                        onToggleChrome()
+                    }
+                },
                 onPress = {
-                    var boosted = false
+                    boosted = false
                     val boostJob = scope.launch {
                         delay(HOLD_TO_BOOST_MS)
                         boosted = true
                         controller.setSpeed(2f)
                     }
-                    val released = tryAwaitRelease()
+                    tryAwaitRelease()
                     boostJob.cancel()
                     if (boosted) {
                         controller.setSpeed(1f)
-                    } else if (released) {
-                        onToggleChrome()
                     }
                 },
             )
@@ -736,6 +767,151 @@ private fun ScrubPreviewLabel(
 }
 
 @Composable
+internal fun TranscriptPanel(
+    state: PlayerUiState,
+    colors: OmaColors,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val listState = rememberLazyListState()
+    val markerHeightPx = with(LocalDensity.current) { 1.dp.toPx() }
+    val activeIndex = activeTranscriptCueIndex(state.transcriptCues, state.positionMs)
+    LaunchedEffect(activeIndex) {
+        if (activeIndex >= 0) listState.animateScrollToItem((activeIndex - 1).coerceAtLeast(0))
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(TranscriptBackground)
+            .border(1.dp, chromeBorder(colors), RectangleShape)
+            .testTag("playerTranscript"),
+    ) {
+        if (state.transcriptCues.isEmpty()) {
+            BasicText(
+                text = if (state.transcriptLoading) "Loading transcript..." else "Transcript unavailable",
+                style = TextStyle(
+                    color = ChromeInk.copy(alpha = 0.64f),
+                    fontFamily = OmaTypography.sans,
+                    fontSize = 14.sp,
+                ),
+                modifier = Modifier
+                    .padding(12.dp)
+                    .testTag("playerTranscriptEmpty"),
+            )
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                itemsIndexed(
+                    items = state.transcriptCues,
+                    key = { index, cue -> "${cue.startMs}_$index" },
+                ) { index, cue ->
+                    val active = index == activeIndex
+                    var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+                    val currentTextLayout = rememberUpdatedState(textLayout)
+                    val currentOnSeek = rememberUpdatedState(onSeek)
+                    val activeWordOffset = if (active) {
+                        activeTranscriptWordCharacterOffset(cue, state.positionMs)
+                    } else {
+                        null
+                    }
+                    val markerTop = textLayout?.let { layout ->
+                        activeWordOffset?.let { offset ->
+                            val line = layout.getLineForOffset(offset)
+                            layout.getLineBottom(line) - markerHeightPx
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("playerTranscriptCue_$index")
+                            .padding(horizontal = 12.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            BasicText(
+                                text = formatTime(cue.startMs / 1000f),
+                                style = TextStyle(
+                                    color = ChromeInk.copy(alpha = 0.58f),
+                                    fontFamily = OmaTypography.mono,
+                                    fontSize = 12.sp,
+                                ),
+                                modifier = Modifier.width(58.dp),
+                            )
+                            BasicText(
+                                text = transcriptText(
+                                    cue = cue,
+                                    positionMs = state.positionMs,
+                                    active = active,
+                                    highlight = colors.accent.copy(alpha = 0.52f),
+                                ),
+                                style = TextStyle(
+                                    color = ChromeInk,
+                                    fontFamily = OmaTypography.sans,
+                                    fontSize = 16.sp,
+                                    lineHeight = 23.sp,
+                                ),
+                                onTextLayout = { textLayout = it },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("playerTranscriptText_$index")
+                                    .pointerInput(cue) {
+                                        detectTapGestures { position ->
+                                            val layout = currentTextLayout.value
+                                                ?: return@detectTapGestures
+                                            val offset = layout.getOffsetForPosition(position)
+                                            transcriptWordAtCharacterOffset(cue, offset)?.let {
+                                                currentOnSeek.value(it.startMs)
+                                            }
+                                        }
+                                    },
+                            )
+                        }
+                        if (markerTop != null) {
+                            Box(
+                                Modifier
+                                    .offset { IntOffset(0, markerTop.roundToInt()) }
+                                    .width(28.dp)
+                                    .height(1.dp)
+                                    .background(colors.brightRed)
+                                    .testTag("playerTranscriptActive_$index"),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+internal fun activeTranscriptCueIndex(cues: List<TranscriptCue>, positionMs: Long): Int =
+    cues.indexOfLast { positionMs >= it.startMs && positionMs < it.endMs }
+
+internal fun transcriptText(
+    cue: TranscriptCue,
+    positionMs: Long,
+    active: Boolean,
+    highlight: Color,
+): AnnotatedString = buildAnnotatedString {
+    cue.words.forEachIndexed { index, word ->
+        val text = if (index == 0) word.text else " ${word.text}"
+        if (active && positionMs >= word.startMs) {
+            withStyle(SpanStyle(background = highlight, color = ChromeInk)) {
+                append(text)
+            }
+        } else {
+            append(text)
+        }
+    }
+}
+
+@Composable
 private fun PlayerSystemEffects(activity: Activity?, playing: Boolean) {
     DisposableEffect(activity) {
         val window = activity?.window
@@ -766,13 +942,28 @@ private val COMPACT_WIDTH = 600.dp
 private val TOP_BAR_HEIGHT = 52.dp
 private val COMPACT_BOTTOM_HEIGHT = 100.dp
 private val WIDE_BOTTOM_HEIGHT = 64.dp
+private val MIN_TRANSCRIPT_HEIGHT = 180.dp
 private val DEFAULT_VIDEO_ASPECT = 16f / 9f
+private val TranscriptBackground = Color.Black
+private val PORTRAIT_BOTTOM_PADDING = 12.dp
+
+internal fun shouldAutoHideChrome(
+    isPortrait: Boolean,
+    playing: Boolean,
+    chromeVisible: Boolean,
+    scrubbing: Boolean,
+): Boolean = !isPortrait && playing && chromeVisible && !scrubbing
+
+internal fun shouldAutoHidePortraitCenter(
+    isPortrait: Boolean,
+    playing: Boolean,
+    centerVisible: Boolean,
+): Boolean = isPortrait && playing && centerVisible
 
 /**
  * Absolute stack geometry for the portrait player, in pixels relative to the
- * display-cutout-safe container. The video is aspect-fitted and centered, then
- * the whole stack (top slot, video, bottom slot) is centered vertically. The
- * bars keep the full container width and sit flush against the video edges.
+ * display-cutout-safe container. Top slot and aspect-fitted video are pinned to
+ * top; bottom controls sit above a fixed inset. Transcript fills space between.
  */
 internal data class PortraitStackGeometry(
     val topSlotTop: Float,
@@ -781,6 +972,8 @@ internal data class PortraitStackGeometry(
     val videoTop: Float,
     val videoWidth: Float,
     val videoHeight: Float,
+    val transcriptTop: Float,
+    val transcriptHeight: Float,
 )
 
 /**
@@ -793,14 +986,21 @@ internal fun computePortraitStackGeometry(
     videoAspect: Float,
     topSlotHeight: Float,
     bottomSlotHeight: Float,
+    minTranscriptHeight: Float,
+    bottomPadding: Float,
 ): PortraitStackGeometry {
     val safeWidth = sanitizeDimension(containerWidth)
     val safeHeight = sanitizeDimension(containerHeight)
     val aspect = if (videoAspect.isFinite() && videoAspect > 0f) videoAspect else DEFAULT_VIDEO_ASPECT
     val topSlot = sanitizeDimension(topSlotHeight)
     val bottomSlot = sanitizeDimension(bottomSlotHeight)
+    val padding = sanitizeDimension(bottomPadding)
 
-    val videoAreaHeight = (safeHeight - topSlot - bottomSlot).coerceAtLeast(0f)
+    val videoTop = topSlot
+    val bottomTop = (safeHeight - padding - bottomSlot).coerceAtLeast(0f)
+    val transcriptMinimum = sanitizeDimension(minTranscriptHeight)
+        .coerceAtMost((bottomTop - videoTop).coerceAtLeast(0f))
+    val videoAreaHeight = (bottomTop - videoTop - transcriptMinimum).coerceAtLeast(0f)
     var videoWidth = safeWidth
     var videoHeight = videoWidth / aspect
     if (videoHeight > videoAreaHeight) {
@@ -810,18 +1010,39 @@ internal fun computePortraitStackGeometry(
     videoWidth = sanitizeDimension(videoWidth).coerceAtMost(safeWidth)
     videoHeight = sanitizeDimension(videoHeight)
 
-    val stackHeight = topSlot + videoHeight + bottomSlot
-    val stackTop = ((safeHeight - stackHeight) / 2f).coerceAtLeast(0f)
-    val videoTop = stackTop + topSlot
     val videoLeft = ((safeWidth - videoWidth) / 2f).coerceAtLeast(0f)
+    val transcriptTop = videoTop + videoHeight
     return PortraitStackGeometry(
-        topSlotTop = stackTop,
-        bottomSlotTop = videoTop + videoHeight,
+        topSlotTop = 0f,
+        bottomSlotTop = bottomTop,
         videoLeft = videoLeft,
         videoTop = videoTop,
         videoWidth = videoWidth,
         videoHeight = videoHeight,
+        transcriptTop = transcriptTop,
+        transcriptHeight = (bottomTop - transcriptTop).coerceAtLeast(0f),
     )
+}
+
+/** Inserted spaces belong to following word; other offsets use displayed text. */
+internal fun transcriptWordAtCharacterOffset(cue: TranscriptCue, offset: Int): TranscriptWord? {
+    if (offset < 0) return null
+    var cursor = 0
+    cue.words.forEachIndexed { index, word ->
+        if (index > 0) {
+            if (offset == cursor) return word
+            cursor++
+        }
+        if (offset in cursor until cursor + word.text.length) return word
+        cursor += word.text.length
+    }
+    return null
+}
+
+internal fun activeTranscriptWordCharacterOffset(cue: TranscriptCue, positionMs: Long): Int? {
+    val index = cue.words.indexOfLast { it.startMs <= positionMs }
+    if (index < 0) return null
+    return cue.words.take(index).sumOf { it.text.length + 1 }
 }
 
 private fun sanitizeDimension(value: Float): Float =

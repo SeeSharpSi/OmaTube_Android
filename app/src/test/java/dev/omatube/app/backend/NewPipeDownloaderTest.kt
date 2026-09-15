@@ -109,4 +109,53 @@ class NewPipeDownloaderTest {
         }
         assertEquals(8, transport.lastCall().maxResponseBytes)
     }
+
+    @Test
+    fun serviceWorkerDataBootstrapsClientVersion() {
+        val transport = FakeTransport()
+        transport.responder = { call ->
+            assertEquals("https://www.youtube.com/sw.js_data", call.url)
+            transport.response(
+                body = ")]}'\n[[null,null,[[[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,\"2.20260914.01.00\"]]]]]",
+                headers = mapOf("X-Test" to listOf("response")),
+                latestUrl = "https://redirected.test/sw.js_data",
+            )
+        }
+        val downloader = NewPipeDownloader(transport, "OmaTubeTest", maxResponseBytes = 1234)
+
+        val response = downloader.execute(
+            Request.newBuilder()
+                .get("https://www.youtube.com/sw.js")
+                .setHeader("X-Test", "request")
+                .build(),
+        )
+
+        assertEquals(1, transport.calls.size)
+        assertEquals("GET", transport.calls.single().method)
+        assertEquals("request", transport.calls.single().headers["X-Test"]?.first())
+        assertEquals("OmaTubeTest", transport.calls.single().headers["User-Agent"]?.first())
+        assertEquals(null, transport.calls.single().body)
+        assertEquals(1234, transport.calls.single().maxResponseBytes)
+        assertEquals("INNERTUBE_CONTEXT_CLIENT_VERSION\":\"2.20260914.01.00\"", response.responseBody())
+        assertEquals("response", response.responseHeaders()["X-Test"]?.first())
+        assertEquals("https://www.youtube.com/sw.js", response.latestUrl())
+    }
+
+    @Test
+    fun malformedServiceWorkerDataFallsBackToOriginalRequest() {
+        val transport = FakeTransport()
+        transport.responder = { call ->
+            if (call.url.endsWith("sw.js_data")) transport.response(body = "not json")
+            else transport.response(body = "original worker")
+        }
+
+        val response = NewPipeDownloader(transport, "OmaTubeTest").execute(
+            Request.newBuilder().get("https://www.youtube.com/sw.js").build(),
+        )
+
+        assertEquals(2, transport.calls.size)
+        assertEquals("https://www.youtube.com/sw.js_data", transport.calls[0].url)
+        assertEquals("https://www.youtube.com/sw.js", transport.calls[1].url)
+        assertEquals("original worker", response.responseBody())
+    }
 }

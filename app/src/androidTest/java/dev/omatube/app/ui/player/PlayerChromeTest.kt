@@ -2,6 +2,8 @@ package dev.omatube.app.ui.player
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -13,6 +15,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.omatube.app.model.TranscriptCue
+import dev.omatube.app.model.TranscriptWord
 import dev.omatube.app.player.PlaybackQuality
 import dev.omatube.app.player.PlayerUiState
 import dev.omatube.app.ui.theme.OmaColors
@@ -310,5 +314,107 @@ class PlayerChromeTest {
             "error overlay should stay wider than tall but was ${size.width}x${size.height}",
             size.width > size.height,
         )
+    }
+
+    @Test
+    fun transcriptShowsCueTimestampAndActiveMarker() {
+        val cues = listOf(
+            TranscriptCue(
+                0L,
+                5_000L,
+                listOf(TranscriptWord("Opening", 0L), TranscriptWord("sentence", 2_000L)),
+            ),
+            TranscriptCue(5_000L, 10_000L, listOf(TranscriptWord("Next", 5_000L))),
+        )
+        val playerState = mutableStateOf(
+            PlayerUiState(transcriptCues = cues, positionMs = 2_500L),
+        )
+        compose.setContent {
+            OmaTheme("default") {
+                TranscriptPanel(playerState.value, colors, onSeek = {})
+            }
+        }
+        compose.onNodeWithTag("playerTranscript").assertExists()
+        compose.onNodeWithTag("playerTranscriptCue_0").assertExists()
+        compose.onNodeWithText("0:00").assertExists()
+        compose.onNodeWithTag("playerTranscriptActive_0").assertExists()
+        compose.onNodeWithTag("playerTranscriptActive_1").assertDoesNotExist()
+
+        compose.runOnIdle {
+            playerState.value = playerState.value.copy(positionMs = 5_500L)
+        }
+
+        compose.onNodeWithTag("playerTranscriptActive_0").assertDoesNotExist()
+        compose.onNodeWithTag("playerTranscriptActive_1").assertExists()
+    }
+
+    @Test
+    fun transcriptEmptyStateIsCompactAndTagged() {
+        compose.setContent {
+            OmaTheme("default") {
+                TranscriptPanel(PlayerUiState(transcriptLoading = false), colors, onSeek = {})
+            }
+        }
+        compose.onNodeWithTag("playerTranscript").assertExists()
+        compose.onNodeWithTag("playerTranscriptEmpty").assertExists()
+        compose.onNodeWithText("Transcript unavailable").assertExists()
+    }
+
+    @Test
+    fun transcriptTapSeeksExactWordFromMeasuredTextNode() {
+        var sought = -1L
+        val cue = TranscriptCue(
+            0L,
+            10_000L,
+            listOf(
+                TranscriptWord("first", 0L),
+                TranscriptWord("middle", 2_000L),
+                TranscriptWord("target", 4_000L),
+            ),
+        )
+        compose.setContent {
+            OmaTheme("default") {
+                TranscriptPanel(
+                    PlayerUiState(transcriptCues = listOf(cue)),
+                    colors,
+                    onSeek = { sought = it },
+                    modifier = Modifier.width(150.dp),
+                )
+            }
+        }
+        val text = compose.onNodeWithTag("playerTranscriptText_0")
+        val bounds = text.fetchSemanticsNode().boundsInRoot
+        text.performTouchInput {
+            down(Offset(8f, bounds.height - 8f))
+            up()
+        }
+        compose.waitForIdle()
+        assertEquals(4_000L, sought)
+    }
+
+    @Test
+    fun transcriptMarkerFollowsWrappedActiveWordLine() {
+        val cue = TranscriptCue(
+            0L,
+            10_000L,
+            listOf(
+                TranscriptWord("first", 0L),
+                TranscriptWord("second", 2_000L),
+                TranscriptWord("third", 4_000L),
+                TranscriptWord("fourth", 6_000L),
+            ),
+        )
+        val state = mutableStateOf(PlayerUiState(transcriptCues = listOf(cue), positionMs = 0L))
+        compose.setContent {
+            OmaTheme("default") {
+                TranscriptPanel(state.value, colors, onSeek = {}, modifier = Modifier.width(120.dp))
+            }
+        }
+        val marker = compose.onNodeWithTag("playerTranscriptActive_0")
+        val firstTop = marker.fetchSemanticsNode().boundsInRoot.top
+        compose.runOnIdle { state.value = state.value.copy(positionMs = 6_000L) }
+        compose.waitForIdle()
+        val laterTop = marker.fetchSemanticsNode().boundsInRoot.top
+        assertTrue("wrapped active word should move marker down", laterTop > firstTop)
     }
 }

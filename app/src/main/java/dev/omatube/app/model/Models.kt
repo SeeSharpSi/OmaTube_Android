@@ -60,6 +60,20 @@ data class SponsorSegment(
     val category: String,
 )
 
+data class TranscriptWord(
+    val text: String,
+    val startMs: Long,
+)
+
+data class TranscriptCue(
+    val startMs: Long,
+    val endMs: Long,
+    val words: List<TranscriptWord>,
+) {
+    val text: String
+        get() = words.joinToString(" ") { it.text }
+}
+
 data class Settings(
     val themeId: String = "default",
     val simpleUi: Boolean = false,

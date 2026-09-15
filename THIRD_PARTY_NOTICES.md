@@ -136,6 +136,9 @@ Their upstream copyright and license are retained here.
   streaming URL classification and user agents.
 - `app/src/main/java/dev/omatube/app/player/StreamSelector.kt` uses the
   desktop/NewPipe codec preference order.
+- `app/src/main/java/dev/omatube/app/backend/NewPipeDownloader.kt` adapts the
+  service-worker-data bootstrap from NewPipeExtractor PR #1520:
+  https://github.com/TeamNewPipe/NewPipeExtractor/pull/1520
 - Upstream: https://github.com/TeamNewPipe/NewPipe and
   https://github.com/TeamNewPipe/NewPipeExtractor
 

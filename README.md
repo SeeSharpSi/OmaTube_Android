@@ -29,12 +29,14 @@ license locations.
   the desktop build resolves on its host.
 - Custom player chrome with seek, play/pause, mute, volume, speed, fullscreen,
   a per-video quality override, separate Wi-Fi and Data preferred maximums, and
-  a shared Last used height. In
-  portrait the top and bottom controls bracket an aspect-fitted video without
-  resizing it when the chrome hides; loading stays visible without the chrome,
-  a center transport appears in the normal state, and the live scrub timestamp
-  is centered above the bottom controls. The controls stay visible while
-  touching or seeking.
+  a shared Last used height. In portrait, the top controls and aspect-fitted
+  video stay pinned above a black scrolling transcript; the bottom controls sit
+  below it with a small screen-edge gap. Transcript words seek when tapped, the
+  red marker follows the spoken text line, and spoken words highlight when
+  captions are available. Top and bottom controls remain visible while the
+  center transport hides on tap or after three seconds of playback. Loading
+  stays visible without the landscape chrome, and the live scrub timestamp is
+  centered above the bottom controls.
 - Local categories, channels, uploads history and resume positions. Resume and
   watch statistics are stored locally; a Watch Next queue holds up to 25 items.
 - SponsorBlock is available but off by default. When enabled, each supported
@@ -58,6 +60,10 @@ in-picture is entered only when a real video is already playing.
 Stream extraction always uses NewPipeExtractor, pinned to `v0.26.5`. Two
 optional metadata paths sit around it:
 
+Its service-worker client-version bootstrap first uses `sw.js_data`, avoiding
+fragile HTML parsing when successful, and retains the original `sw.js` request
+as a compatibility fallback.
+
 - Without an API key, recent uploads come from the public YouTube long-form Atom
   feed (`UULF...`). A NewPipe first page adds durations for items that lack
   them. The Atom response is returned before enrichment, so the feed never waits
@@ -67,6 +73,10 @@ optional metadata paths sit around it:
   Enter it in Config. When "Remember locally" is enabled, the key is encrypted
   with an Android Keystore AES/GCM key and stored under the app's no-backup
   directory; otherwise it stays in memory for the session only.
+
+Portrait transcripts use a caption track returned by the same NewPipe stream
+extraction. OmaTube fetches timed caption data after playback starts; missing or
+failed captions do not interrupt playback, and transcript data is not persisted.
 
 Live checks are independent of the feed: an empty successful result clears live
 state, while a failure keeps the last-known live state and reports live status

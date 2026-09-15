@@ -10,6 +10,8 @@ import dev.omatube.app.connectivity.ConnectionType
 import dev.omatube.app.connectivity.ConnectivityProvider
 import dev.omatube.app.model.Settings
 import dev.omatube.app.model.SponsorSegment
+import dev.omatube.app.model.TranscriptCue
+import dev.omatube.app.model.TranscriptWord
 import dev.omatube.app.model.Video
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.schabi.newpipe.extractor.stream.StreamInfo
 
 /** Everything the player chrome needs to render. */
 data class PlayerUiState(
@@ -46,6 +49,8 @@ data class PlayerUiState(
     val videoAspectRatio: Float? = null,
     val sponsorSegments: List<SponsorSegment> = emptyList(),
     val manualSegment: SponsorSegment? = null,
+    val transcriptCues: List<TranscriptCue> = emptyList(),
+    val transcriptLoading: Boolean = false,
 ) {
     val overlay: Overlay get() = when {
         error != null -> Overlay.ERROR
@@ -113,6 +118,7 @@ class PlayerController(
     private var reextracted = false
     private var resolveJob: Job? = null
     private var watchJob: Job? = null
+    private var transcriptStarted = false
 
     private val _uiState = MutableStateFlow(
         PlayerUiState(
@@ -122,6 +128,7 @@ class PlayerController(
             muted = initialSettings.playbackVolume == 0,
             qualityValue = initialSettings.videoQualityOverrides[video.id] ?: PlaybackQuality.DEFAULT,
             effectiveHeight = PlaybackQuality.effectiveHeight(initialSettings, video.id, connectionType()),
+            transcriptLoading = !video.isLive,
         ),
     )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -379,27 +386,48 @@ class PlayerController(
                     error = null,
                     ended = false,
                     videoAspectRatio = null,
+                    transcriptLoading = !video.isLive && !transcriptStarted,
                 )
             }
             engine.setMaxVideoHeight(effectiveHeight)
             if (automation) {
-                engine.load(mediaSource = null, startPositionMs = startPositionMs, live = video.isLive)
+                _uiState.update {
+                    it.copy(
+                        transcriptCues = if (video.isLive) emptyList() else automationTranscriptCues(),
+                        transcriptLoading = false,
+                    )
+                }
+                engine.load(
+                    mediaSource = null,
+                    startPositionMs = startPositionMs,
+                    live = video.isLive,
+                )
                 if (resumePlaying) engine.play()
                 return@launch
             }
             try {
-                val result = withContext(Dispatchers.IO) {
+                val (info, result) = withContext(Dispatchers.IO) {
                     val info = backend.resolveStream(video.id)
-                    resolver.resolve(info, effectiveHeight)
+                    info to resolver.resolve(info, effectiveHeight)
                 }
                 when (result) {
                     is MediaSourceResolver.Result.Success -> {
                         _uiState.update { it.copy(selectedHeight = result.selectedHeight) }
                         engine.load(result.mediaSource, startPositionMs, result.isLive)
                         if (resumePlaying) engine.play()
+                        if (!result.isLive && !transcriptStarted) {
+                            transcriptStarted = true
+                            loadTranscript(info)
+                        }
                     }
                     is MediaSourceResolver.Result.Failure -> {
-                        _uiState.update { it.copy(loading = false, error = result.message) }
+                        _uiState.update {
+                            it.copy(
+                                loading = false,
+                                error = result.message,
+                                transcriptLoading = false,
+                            )
+                        }
                     }
                 }
             } catch (cancellation: CancellationException) {
@@ -410,8 +438,23 @@ class PlayerController(
                         loading = false,
                         playing = false,
                         error = throwable.message ?: "Could not start playback",
+                        transcriptLoading = false,
                     )
                 }
+            }
+        }
+    }
+
+    private fun loadTranscript(info: StreamInfo) {
+        _uiState.update { it.copy(transcriptLoading = true, transcriptCues = emptyList()) }
+        controllerScope.launch(Dispatchers.IO) {
+            try {
+                val cues = backend.loadTranscript(info)
+                _uiState.update { it.copy(transcriptLoading = false, transcriptCues = cues) }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                _uiState.update { it.copy(transcriptLoading = false, transcriptCues = emptyList()) }
             }
         }
     }
@@ -478,5 +521,27 @@ class PlayerController(
 
         /** How often the periodic watch collector checks for a due report. */
         const val WATCH_SAVE_TICK_MS = 1_000L
+
+        private fun automationTranscriptCues(): List<TranscriptCue> = listOf(
+            cue(0L, 30_000L, "Welcome to this calm, practical overview."),
+            cue(30_000L, 90_000L, "We will follow each step and note what changes."),
+            cue(90_000L, 180_000L, "Small checks keep ordinary work predictable."),
+            cue(180_000L, 300_000L, "Clear boundaries make tools easier to trust."),
+            cue(300_000L, 420_000L, "The same approach works when conditions shift."),
+            cue(420_000L, 510_000L, "Review the result before moving to the next part."),
+            cue(510_000L, 600_000L, "That completes this deterministic player example."),
+        )
+
+        private fun cue(startMs: Long, endMs: Long, text: String): TranscriptCue {
+            val tokens = text.split(' ')
+            val durationMs = endMs - startMs
+            val words = tokens.mapIndexed { index, word ->
+                TranscriptWord(
+                    text = word,
+                    startMs = startMs + durationMs * index / tokens.size,
+                )
+            }
+            return TranscriptCue(startMs = startMs, endMs = endMs, words = words)
+        }
     }
 }

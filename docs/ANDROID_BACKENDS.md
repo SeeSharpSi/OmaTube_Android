@@ -12,6 +12,11 @@ production:
 
 - Metadata and stream extraction use NewPipeExtractor
   `com.github.teamnewpipe:NewPipeExtractor:v0.26.5`, consumed from JitPack.
+- `NewPipeDownloader` adapts the service-worker client-version bootstrap from
+  [NewPipeExtractor PR #1520](https://github.com/TeamNewPipe/NewPipeExtractor/pull/1520):
+  it requests `https://www.youtube.com/sw.js_data` and falls back to the original
+  `sw.js` request when data is unavailable or invalid. The v0.26.5 pin remains
+  retained until a released extractor includes this fix.
 - `resolveStream` always calls NewPipeExtractor. No other component extracts a
   playable stream.
 - The public YouTube long-form Atom feed is an optional fast path for recent
@@ -20,6 +25,10 @@ production:
   configured a key. It is never used to extract a stream.
 - SponsorBlock is an optional lookup through `SponsorBlockClient`; it returns
   skip segments only and does not affect extraction.
+- Transcript acquisition uses `YoutubeTranscriptLoader` after stream resolution;
+  it selects an available subtitle URL, requests YouTube JSON3 captions through
+  the shared bounded transport, and returns transient cue/word timings. It does
+  not perform a second stream extraction or persist transcript data.
 - The debug/offline `FakeVideoBackend` replaces all of this under automation.
 
 The app does not bundle `yt-dlp`, Python, ffmpeg, aria2c, or any external
@@ -154,6 +163,8 @@ when the application code has not changed.
 
 - NewPipeExtractor v0.26.5:
   https://github.com/TeamNewPipe/NewPipeExtractor/releases/tag/v0.26.5
+- NewPipeExtractor PR #1520 (service-worker data bootstrap):
+  https://github.com/TeamNewPipe/NewPipeExtractor/pull/1520
 - NewPipe app (does not use yt-dlp):
   https://github.com/TeamNewPipe/NewPipe/issues/11803
 - NewPipe yt-dlp backend request (closed):

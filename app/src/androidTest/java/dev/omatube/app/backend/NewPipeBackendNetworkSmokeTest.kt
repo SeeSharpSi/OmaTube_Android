@@ -12,7 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Opt-in, network-dependent smoke check for the public-VOD extraction path.
+ * Opt-in, network-dependent smoke check for channel, feed, stream, and transcript extraction.
  *
  * It is NOT part of the default offline suite: it only runs when the instrumentation argument
  * `omatubeNetworkSmoke=true` is supplied, e.g.
@@ -68,6 +68,115 @@ class NewPipeBackendNetworkSmokeTest {
                     "expected at least one extractable source $diagnostics",
                     videoCount + videoOnlyCount + audioCount > 0,
                 )
+            } finally {
+                backend.close()
+            }
+        }
+    }
+
+    @Test
+    fun transcriptLoadingDoesNotBreakLaterChannelExtraction() = runBlocking {
+        withTimeout(NETWORK_TIMEOUT_MS) {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val backend = NewPipeBackend(context) { Settings() }
+            try {
+                val stream = try {
+                    backend.resolveStream(PUBLIC_VIDEO_ID)
+                } catch (error: Exception) {
+                    throw AssertionError("resolveStream failed before transcript stage", error)
+                }
+
+                val transcript = try {
+                    backend.loadTranscript(stream)
+                } catch (error: Exception) {
+                    throw AssertionError("transcript stage failed", error)
+                }
+                assertTrue("transcript stage returned no cues", transcript.isNotEmpty())
+
+                val channel = try {
+                    backend.resolveChannel(PUBLIC_CHANNEL)
+                } catch (error: Exception) {
+                    throw AssertionError("post-transcript resolveChannel failed", error)
+                }
+                assertTrue(
+                    "post-transcript resolveChannel returned non-canonical id '${channel.id}'",
+                    channel.id.startsWith("UC"),
+                )
+                assertTrue(
+                    "post-transcript resolveChannel returned blank title",
+                    channel.title.isNotBlank(),
+                )
+
+                val enriched = try {
+                    backend.enrichRecentVideos(channel)
+                } catch (error: Exception) {
+                    throw AssertionError("post-transcript VIDEOS enrichment failed", error)
+                }
+                assertTrue(
+                    "post-transcript VIDEOS enrichment returned no videos for '${channel.id}'",
+                    enriched.isNotEmpty(),
+                )
+            } finally {
+                backend.close()
+            }
+        }
+    }
+
+    @Test
+    fun loadsPublicChannelFeedsAndLiveStreams() = runBlocking {
+        withTimeout(NETWORK_TIMEOUT_MS) {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val backend = NewPipeBackend(context) { Settings() }
+            try {
+                val channel = try {
+                    backend.resolveChannel(PUBLIC_CHANNEL)
+                } catch (error: Exception) {
+                    throw AssertionError("resolveChannel failed for NASA", error)
+                }
+                assertTrue(
+                    "resolveChannel returned non-canonical id '${channel.id}'",
+                    channel.id.startsWith("UC"),
+                )
+
+                val recent = try {
+                    backend.recentVideos(channel)
+                } catch (error: Exception) {
+                    throw AssertionError("Atom recentVideos failed for NASA", error)
+                }
+                assertTrue(
+                    "Atom recentVideos returned no videos for '${channel.id}'",
+                    recent.videos.isNotEmpty(),
+                )
+                assertTrue(
+                    "Atom recentVideos returned a video for another channel",
+                    recent.videos.all { it.channelId == channel.id },
+                )
+
+                val enriched = try {
+                    backend.enrichRecentVideos(channel)
+                } catch (error: Exception) {
+                    throw AssertionError("NewPipe VIDEOS enrichment failed for NASA", error)
+                }
+                assertTrue(
+                    "NewPipe VIDEOS enrichment returned no videos for '${channel.id}'",
+                    enriched.isNotEmpty(),
+                )
+                assertTrue(
+                    "NewPipe VIDEOS enrichment returned a video for another channel",
+                    enriched.all { it.channelId == channel.id },
+                )
+
+                val live = try {
+                    backend.liveVideos(channel)
+                } catch (error: Exception) {
+                    throw AssertionError("NewPipe LIVESTREAMS loading failed for NASA", error)
+                }
+                if (live.isNotEmpty()) {
+                    assertTrue(
+                        "NewPipe LIVESTREAMS returned a video for another channel",
+                        live.all { it.channelId == channel.id },
+                    )
+                }
             } finally {
                 backend.close()
             }

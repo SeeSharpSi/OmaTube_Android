@@ -2,6 +2,7 @@ package dev.omatube.app.backend
 
 import dev.omatube.app.model.Channel
 import dev.omatube.app.model.SponsorSegment
+import dev.omatube.app.model.TranscriptCue
 import dev.omatube.app.model.Video
 import dev.omatube.app.model.VideoPage
 import org.schabi.newpipe.extractor.stream.StreamInfo
@@ -24,6 +25,8 @@ interface VideoBackend {
     suspend fun enrichRecentVideos(channel: Channel): List<Video> = emptyList()
 
     suspend fun resolveStream(videoId: String): StreamInfo
+
+    suspend fun loadTranscript(streamInfo: StreamInfo): List<TranscriptCue> = emptyList()
 
     suspend fun sponsorSegments(videoId: String): List<SponsorSegment>
 }

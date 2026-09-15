@@ -54,10 +54,15 @@ persistence logic out of Compose.
 - `backend/NewPipeBackend` is the `VideoBackend` implementation. Stream
   extraction always uses NewPipeExtractor. The Atom feed is an optional recent
   fast path and the Data API is an optional metadata path when a key exists.
+  NewPipeDownloader adapts PR #1520; review and remove workaround when pinned
+  release includes it.
 - `data/` owns Room and DataStore persistence behind `LibraryRepository` and
   `SettingsStore`. Room schema is exported to `app/schemas`.
 - `player/` owns Media3, stream selection, watch accounting and SponsorBlock;
-  `ui/` is presentation only. `ui/theme` holds the bundled palettes and fonts.
+  `ui/` is presentation only. Portrait playback keeps top and bottom chrome
+  visible, renders the timed caption transcript directly below the top-pinned
+  video, and places bottom controls below the transcript. Caption fetching and
+  parsing remain in `backend/`. `ui/theme` holds the bundled palettes and fonts.
 
 ## Conventions
 

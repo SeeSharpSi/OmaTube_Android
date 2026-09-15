@@ -50,6 +50,7 @@ class NewPipeBackend(
     private val atomFeed = AtomFeedClient(transport, USER_AGENT)
     private val sponsorBlock = SponsorBlockClient(transport, USER_AGENT)
     private val dataApi = YoutubeDataApi(transport, { settings().apiKey }, USER_AGENT)
+    private val transcriptLoader = YoutubeTranscriptLoader(transport, USER_AGENT)
     private val ioDispatcher = Dispatchers.IO
 
     @Volatile
@@ -158,6 +159,9 @@ class NewPipeBackend(
             sponsorBlock.segments(videoId, categories)
         }
 
+    override suspend fun loadTranscript(streamInfo: StreamInfo) =
+        extract(TRANSCRIPT_TIMEOUT_MS) { transcriptLoader.load(streamInfo) }
+
     /**
      * Lightweight duration/live enrichment for the Atom fast path.
      *
@@ -252,6 +256,7 @@ class NewPipeBackend(
         private const val PAGE_TIMEOUT_MS = 60_000L
         private const val STREAM_TIMEOUT_MS = 90_000L
         private const val SPONSOR_TIMEOUT_MS = 20_000L
+        private const val TRANSCRIPT_TIMEOUT_MS = 20_000L
         private val VIDEO_ID = Regex("^[A-Za-z0-9_-]{11}$")
         private val INIT_LOCK = Any()
     }

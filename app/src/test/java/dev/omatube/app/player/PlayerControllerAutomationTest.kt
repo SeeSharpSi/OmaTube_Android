@@ -70,6 +70,40 @@ class PlayerControllerAutomationTest {
         assertThat(controller.uiState.value.positionMs).isGreaterThan(0L)
         assertThat(controller.uiState.value.title).isEqualTo("Fixture video")
         assertThat(controller.uiState.value.videoAspectRatio).isEqualTo(DEFAULT_VIDEO_ASPECT)
+        assertThat(controller.uiState.value.transcriptLoading).isFalse()
+        assertThat(controller.uiState.value.transcriptCues).isNotEmpty()
+        assertThat(controller.uiState.value.transcriptCues.last().endMs).isEqualTo(600_000L)
+
+        controller.release()
+        scope.cancel()
+    }
+
+    @Test
+    fun liveAutomationDoesNotCreateTranscript() = runTest {
+        val backend = ExplodingBackend()
+        val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
+        val controller = PlayerController(
+            context = ContextWrapper(null),
+            video = Video(
+                id = "AUTO0000003",
+                channelId = "fixture",
+                title = "Live fixture",
+                isLive = true,
+            ),
+            initialSettings = Settings(),
+            backend = backend,
+            automation = true,
+            onSettingsChange = {},
+            onReportPlayback = { _, _, _, _ -> },
+            scope = scope,
+        )
+
+        controller.start()
+        advanceTimeBy(1_000)
+
+        assertThat(backend.callCount).isEqualTo(0)
+        assertThat(controller.uiState.value.transcriptLoading).isFalse()
+        assertThat(controller.uiState.value.transcriptCues).isEmpty()
 
         controller.release()
         scope.cancel()
