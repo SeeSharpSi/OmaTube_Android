@@ -13,8 +13,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -28,6 +30,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -43,18 +48,21 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
@@ -94,6 +102,7 @@ import dev.omatube.app.ui.theme.OmaTypography
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -801,10 +810,119 @@ internal fun TranscriptPanel(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
-    val markerHeightPx = with(LocalDensity.current) { 1.dp.toPx() }
-    val activeIndex = activeTranscriptCueIndex(state.transcriptCues, state.positionMs)
-    LaunchedEffect(activeIndex) {
-        if (activeIndex >= 0) listState.animateScrollToItem((activeIndex - 1).coerceAtLeast(0))
+    val density = LocalDensity.current
+    val markerHeightPx = with(density) { 1.dp.toPx() }
+    val scrubEdgeMarginPx = with(density) { 2.dp.toPx() }
+    // Normal playback follow keeps its own fixed speed. Edge scrubbing uses
+    // the amplified finger velocity instead, so the two never share a rate.
+    val transcriptFollowSpeedPxPerSec = with(density) { TRANSCRIPT_SCROLL_DP_PER_SECOND.dp.toPx() }
+    // True while the persistent scrub overlay drag is in flight. Auto-follow
+    // is disabled for the whole drag so the list never fights the finger.
+    // The physical scrub line lives here on the overlay, never per cue, so it
+    // survives cue disposal, spacing gaps and controller feedback updates.
+    var transcriptScrubbing by remember { mutableStateOf(false) }
+    var overlayInnerHeightPx by remember { mutableIntStateOf(0) }
+    var scrubMarkerYPx by remember { mutableFloatStateOf(0f) }
+    var scrubEdge by remember { mutableIntStateOf(0) }
+    var scrubVelocityPxPerSec by remember { mutableFloatStateOf(0f) }
+    var scrubPendingResidualPx by remember { mutableFloatStateOf(0f) }
+    var scrubPreviewPositionMs by remember { mutableStateOf<Long?>(null) }
+    var committedPreviewMs by remember { mutableStateOf<Long?>(null) }
+    var commitAcknowledged by remember { mutableStateOf(false) }
+    var skipAutoFollowIndex by remember { mutableIntStateOf(-1) }
+    val currentCues = rememberUpdatedState(state.transcriptCues)
+    val currentOnSeek = rememberUpdatedState(onSeek)
+    fun clampScrubLine(yPx: Float): Float = clampScrubMarkerY(
+        yPx,
+        overlayInnerHeightPx.toFloat(),
+        markerHeightPx,
+        scrubEdgeMarginPx,
+    )
+    fun positionForOverlayY(yPx: Float): Long? =
+        transcriptSeekForOverlayY(
+            currentCues.value,
+            listState.layoutInfo,
+            yPx,
+        )
+    fun previewOverlayY(yPx: Float) {
+        positionForOverlayY(yPx)?.let { scrubPreviewPositionMs = it }
+    }
+    // During drag and while a committed seek is unacknowledged, external
+    // playback positions are ignored so the highlight cannot snap back.
+    val shownPositionMs = scrubPreviewPositionMs ?: state.positionMs
+    val activeIndex = activeTranscriptCueIndex(state.transcriptCues, shownPositionMs)
+
+    // Held-edge loop owned by the persistent overlay composition. Pointer
+    // samples never scroll the list directly. A queued first-crossing
+    // residual is consumed instead of velocity * dt on exactly one frame;
+    // later held frames apply velocity only, including while the finger is
+    // held still with no pointer events.
+    LaunchedEffect(transcriptScrubbing) {
+        if (!transcriptScrubbing) return@LaunchedEffect
+        var lastNanos = withFrameNanos { it }
+        while (true) {
+            val nowNanos = withFrameNanos { it }
+            val dtSec = ((nowNanos - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.1f)
+            lastNanos = nowNanos
+            if (scrubEdge != 0) {
+                val residual = scrubPendingResidualPx
+                scrubPendingResidualPx = 0f
+                val step = if (residual != 0f) {
+                    residual
+                } else {
+                    edgeScrollStepPx(scrubVelocityPxPerSec, dtSec)
+                }
+                if (step != 0f) {
+                    listState.scrollBy(step)
+                }
+                previewOverlayY(scrubMarkerYPx)
+            } else if (scrubPendingResidualPx != 0f) {
+                scrubPendingResidualPx = 0f
+            }
+        }
+    }
+    // Seek acknowledgement. PlayerController.seekTo synchronously emits the
+    // exact target, so the commit is acknowledged only on exact equality or,
+    // while playing, a small forward window covering one playback tick past
+    // the target. The physical marker and local preview are retained until
+    // acknowledged and the observed playback position actually moves again,
+    // so a paused seek keeps the red line at the release pixel. A manual
+    // text seek clears the commit directly at its tap handler and therefore
+    // always supersedes a held preview.
+    LaunchedEffect(committedPreviewMs, state.positionMs, state.playing, transcriptScrubbing) {
+        val target = committedPreviewMs ?: return@LaunchedEffect
+        if (transcriptScrubbing) return@LaunchedEffect
+        val observed = state.positionMs
+        if (!commitAcknowledged) {
+            if (observed == target) {
+                commitAcknowledged = true
+            } else if (state.playing && observed > target &&
+                observed - target <= COMMITTED_PREVIEW_FORWARD_WINDOW_MS
+            ) {
+                commitAcknowledged = true
+            } else {
+                return@LaunchedEffect
+            }
+        }
+        if (observed != target) {
+            scrubPreviewPositionMs = null
+            committedPreviewMs = null
+            commitAcknowledged = false
+        }
+    }
+    LaunchedEffect(activeIndex, transcriptScrubbing, committedPreviewMs) {
+        if (activeIndex < 0 || transcriptScrubbing || committedPreviewMs != null) {
+            return@LaunchedEffect
+        }
+        if (activeIndex == skipAutoFollowIndex) {
+            return@LaunchedEffect
+        }
+        skipAutoFollowIndex = -1
+        constantSpeedTranscriptFollow(
+            listState,
+            (activeIndex - 1).coerceAtLeast(0),
+            transcriptFollowSpeedPxPerSec,
+        )
     }
     Box(
         modifier = modifier
@@ -839,17 +957,22 @@ internal fun TranscriptPanel(
                     val active = index == activeIndex
                     var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
                     val currentTextLayout = rememberUpdatedState(textLayout)
-                    val currentOnSeek = rememberUpdatedState(onSeek)
-                    var gutterHeightPx by remember { mutableIntStateOf(0) }
-                    // Smooth progress: fractional position through the cue's words,
-                    // mapped onto the measured text height so the gutter tick glides
-                    // continuously instead of snapping per line.
+                    val currentWordSeek = rememberUpdatedState(onSeek)
+                    // Playback marker only. Hidden while the physical scrub
+                    // line or a committed preview is visible so the gutter
+                    // never shows duplicates. Forward mapping uses the
+                    // measured row height (shared with the seek inverse,
+                    // which uses item size) rather than only BasicText
+                    // height, keeping release handoff geometry consistent.
+                    var cueRowHeightPx by remember { mutableIntStateOf(0) }
+                    val scrubOverlayActive = transcriptScrubbing || scrubPreviewPositionMs != null
                     val markerTop = textLayout?.let { layout ->
-                        if (!active) {
+                        if (!active || scrubOverlayActive) {
                             null
                         } else {
-                            val fraction = transcriptCueProgressFraction(cue, state.positionMs)
-                            val total = layout.size.height.toFloat()
+                            val fraction = transcriptCueProgressFraction(cue, shownPositionMs)
+                            val textTotal = layout.size.height.toFloat()
+                            val total = cueRowHeightPx.toFloat().takeIf { it > 0f } ?: textTotal
                             if (total <= 0f) {
                                 0f
                             } else {
@@ -864,42 +987,22 @@ internal fun TranscriptPanel(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("playerTranscriptCue_$index")
-                            .padding(horizontal = 12.dp),
+                            .padding(horizontal = 12.dp)
+                            .onSizeChanged { cueRowHeightPx = it.height },
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Max),
                             verticalAlignment = Alignment.Top,
                         ) {
-                            // Timestamp gutter doubles as a scrub handle: tap jumps to
-                            // the cue start, vertical drag seeks smoothly through the
-                            // cue. Kept narrow so text drags still scroll the list.
+                            // Timestamp visual gutter only. Scrub input lives on
+                            // the persistent overlay below so item disposal
+                            // cannot cancel the gesture.
                             Box(
                                 modifier = Modifier
                                     .width(58.dp)
-                                    .fillMaxHeight()
-                                    .onSizeChanged { gutterHeightPx = it.height }
-                                    .testTag("playerTranscriptScrub_$index")
-                                    .pointerInput(cue) {
-                                        detectTapGestures {
-                                            currentOnSeek.value(cue.startMs)
-                                        }
-                                    }
-                                    .pointerInput(cue) {
-                                        detectVerticalDragGestures(
-                                            onDragStart = { offset ->
-                                                val height = gutterHeightPx.coerceAtLeast(1)
-                                                val fraction = (offset.y / height.toFloat()).coerceIn(0f, 1f)
-                                                currentOnSeek.value(transcriptSeekForFraction(cue, fraction))
-                                            },
-                                            onVerticalDrag = { change, _ ->
-                                                val height = gutterHeightPx.coerceAtLeast(1)
-                                                val fraction =
-                                                    (change.position.y / height.toFloat()).coerceIn(0f, 1f)
-                                                currentOnSeek.value(transcriptSeekForFraction(cue, fraction))
-                                                change.consume()
-                                            },
-                                        )
-                                    },
+                                    .fillMaxHeight(),
                                 contentAlignment = Alignment.TopStart,
                             ) {
                                 BasicText(
@@ -914,7 +1017,7 @@ internal fun TranscriptPanel(
                             BasicText(
                                 text = transcriptText(
                                     cue = cue,
-                                    positionMs = state.positionMs,
+                                    positionMs = shownPositionMs,
                                     active = active,
                                     highlight = colors.accent.copy(alpha = 0.52f),
                                 ),
@@ -934,7 +1037,11 @@ internal fun TranscriptPanel(
                                                 ?: return@detectTapGestures
                                             val offset = layout.getOffsetForPosition(position)
                                             transcriptWordAtCharacterOffset(cue, offset)?.let {
-                                                currentOnSeek.value(it.startMs)
+                                                scrubPreviewPositionMs = null
+                                                committedPreviewMs = null
+                                                commitAcknowledged = false
+                                                skipAutoFollowIndex = -1
+                                                currentWordSeek.value(it.startMs)
                                             }
                                         }
                                     },
@@ -951,6 +1058,150 @@ internal fun TranscriptPanel(
                             )
                         }
                     }
+                }
+            }
+            // Persistent seek gutter. Layered after the list so the gesture
+            // survives originating-cue disposal. Vertical padding is applied
+            // before measurement and input so the overlay inner height and
+            // local Y match the LazyColumn viewport. One slop-free gesture
+            // detector owns down, moves and release: down starts the physical
+            // line at the exact touch point, moves advance it with gain, and
+            // release commits the preview as the seek. A tap is a down plus
+            // release with no moves and seeks the tapped fraction.
+            Box(
+                modifier = Modifier
+                    .offset(x = 12.dp)
+                    .width(58.dp)
+                    .fillMaxHeight()
+                    .padding(vertical = 8.dp)
+                    .onSizeChanged { overlayInnerHeightPx = it.height }
+                    .testTag("playerTranscriptScrub")
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            down.consume()
+                            val pointerId = down.id
+                            var lastY = down.position.y
+                            var lastT = down.uptimeMillis
+                            var released = false
+                            transcriptScrubbing = true
+                            committedPreviewMs = null
+                            commitAcknowledged = false
+                            scrubEdge = 0
+                            scrubVelocityPxPerSec = 0f
+                            scrubPendingResidualPx = 0f
+                            scrubMarkerYPx = clampScrubLine(down.position.y)
+                            previewOverlayY(scrubMarkerYPx)
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == pointerId }
+                                    if (change == null) {
+                                        if (event.changes.all { !it.pressed }) break
+                                        continue
+                                    }
+                                    if (change.pressed) {
+                                        val dy = change.position.y - lastY
+                                        val dt = change.uptimeMillis - lastT
+                                        if (dy != 0f) {
+                                            lastY = change.position.y
+                                            val innerHeight = overlayInnerHeightPx.toFloat()
+                                            if (innerHeight > 0f) {
+                                                val wasEdge = scrubEdge
+                                                val step = stepScrubMarker(
+                                                    scrubMarkerYPx,
+                                                    dy * TRANSCRIPT_SCRUB_GAIN,
+                                                    innerHeight,
+                                                    markerHeightPx,
+                                                    scrubEdgeMarginPx,
+                                                )
+                                                scrubMarkerYPx = step.markerY
+                                                scrubEdge = step.edge
+                                                if (step.residualPx != 0f) {
+                                                    // Queue the overshoot only
+                                                    // on a transition into the
+                                                    // edge. Samples held on the
+                                                    // same edge only refresh
+                                                    // velocity below.
+                                                    if (wasEdge != step.edge) {
+                                                        scrubPendingResidualPx = step.residualPx
+                                                    }
+                                                } else if (step.edge == 0) {
+                                                    scrubPendingResidualPx = 0f
+                                                }
+                                                // A timed movement refreshes
+                                                // the held-edge speed. dt <= 0
+                                                // keeps the last velocity and
+                                                // never divides by zero.
+                                                // Zero-delta events retain edge
+                                                // and velocity untouched.
+                                                if (dt > 0) {
+                                                    lastT = change.uptimeMillis
+                                                    amplifiedVelocityPxPerSec(
+                                                        dy,
+                                                        dt,
+                                                        TRANSCRIPT_SCRUB_GAIN,
+                                                    )?.let { velocity ->
+                                                        scrubVelocityPxPerSec = velocity
+                                                    }
+                                                }
+                                                previewOverlayY(scrubMarkerYPx)
+                                            }
+                                        }
+                                        change.consume()
+                                    } else {
+                                        // Compose reports cancel() as a consumed
+                                        // up event. Only an unconsumed up is a
+                                        // real release; keep cancellation on the
+                                        // cleanup path so it cannot seek.
+                                        if (change.isConsumed) {
+                                            break
+                                        }
+                                        released = true
+                                        change.consume()
+                                        break
+                                    }
+                                }
+                            } finally {
+                                if (released) {
+                                    val committedPosition = scrubPreviewPositionMs
+                                    skipAutoFollowIndex = committedPosition?.let {
+                                        activeTranscriptCueIndex(currentCues.value, it)
+                                    } ?: -1
+                                    transcriptScrubbing = false
+                                    scrubEdge = 0
+                                    scrubVelocityPxPerSec = 0f
+                                    scrubPendingResidualPx = 0f
+                                    // Release never re-aligns the list; the
+                                    // skip above absorbs the position jump.
+                                    // The physical line and preview stay until
+                                    // the synchronous seek is acknowledged and
+                                    // playback actually moves again.
+                                    committedPreviewMs = committedPosition
+                                    commitAcknowledged = false
+                                    committedPosition?.let { currentOnSeek.value(it) }
+                                } else {
+                                    transcriptScrubbing = false
+                                    scrubEdge = 0
+                                    scrubVelocityPxPerSec = 0f
+                                    scrubPendingResidualPx = 0f
+                                    scrubPreviewPositionMs = null
+                                    committedPreviewMs = null
+                                    commitAcknowledged = false
+                                }
+                            }
+                        }
+                    },
+            ) {
+                if (transcriptScrubbing || scrubPreviewPositionMs != null) {
+                    Box(
+                        modifier = Modifier
+                            .graphicsLayer { translationY = scrubMarkerYPx }
+                            .width(28.dp)
+                            .height(1.dp)
+                            .background(colors.brightRed)
+                            .testTag("playerTranscriptScrubMarker"),
+                    )
                 }
             }
         }
@@ -1013,6 +1264,48 @@ private val MIN_TRANSCRIPT_HEIGHT = 180.dp
 private val DEFAULT_VIDEO_ASPECT = 16f / 9f
 private val TranscriptBackground = Color.Black
 private val PORTRAIT_BOTTOM_PADDING = 24.dp
+private const val TRANSCRIPT_SCROLL_DP_PER_SECOND = 70f
+// Small forward window (ms) accepting the first playing tick just past an
+// exact synchronous seek target as acknowledgement. Paused seeks hold the
+// marker until playback actually moves.
+private const val COMMITTED_PREVIEW_FORWARD_WINDOW_MS = 350L
+
+/**
+ * Move towards a cue at one physical speed. This walks until a distant target
+ * becomes visible, then consumes only the exact remaining distance. Variable
+ * cue heights therefore cannot cause estimation jumps or edge acceleration.
+ */
+private suspend fun constantSpeedTranscriptFollow(
+    listState: LazyListState,
+    targetIndex: Int,
+    speedPxPerSec: Float,
+) {
+    var lastNanos = withFrameNanos { it }
+    while (true) {
+        val info = listState.layoutInfo
+        if (info.totalItemsCount == 0) return
+        val safeTarget = targetIndex.coerceIn(0, info.totalItemsCount - 1)
+        val target = info.visibleItemsInfo.firstOrNull { it.index == safeTarget }
+        val remaining = target?.offset?.toFloat()
+        if (remaining != null && abs(remaining) < 1f) return
+
+        val direction = when {
+            remaining != null -> if (remaining < 0f) -1f else 1f
+            safeTarget < listState.firstVisibleItemIndex -> -1f
+            else -> 1f
+        }
+        val nowNanos = withFrameNanos { it }
+        val dtSec = ((nowNanos - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.1f)
+        lastNanos = nowNanos
+        val maxStep = speedPxPerSec * dtSec
+        val distance = if (remaining == null) {
+            direction * maxStep
+        } else {
+            direction * abs(remaining).coerceAtMost(maxStep)
+        }
+        if (abs(listState.scrollBy(distance)) < 0.1f) return
+    }
+}
 
 internal fun shouldAutoHideChrome(
     isPortrait: Boolean,
@@ -1162,6 +1455,47 @@ internal fun transcriptSeekForFraction(cue: TranscriptCue, fraction: Float): Lon
     if (nextStart <= currentStart) return currentStart.coerceIn(cue.startMs, cue.endMs)
     return (currentStart + between * (nextStart - currentStart).toFloat()).toLong()
         .coerceIn(cue.startMs, cue.endMs)
+}
+
+/**
+ * Visible cue index under an overlay Y in Lazy viewport coordinates. Items
+ * containing Y win; spacing gaps fall back to the nearest visible item.
+ */
+internal fun transcriptOverlayItemAtY(layoutInfo: LazyListLayoutInfo, yPx: Float): Int? {
+    val visible = layoutInfo.visibleItemsInfo
+    if (visible.isEmpty()) return null
+    visible.firstOrNull { item ->
+        yPx >= item.offset.toFloat() && yPx <= (item.offset + item.size).toFloat()
+    }?.let { return it.index }
+    return visible.minByOrNull { item ->
+        val start = item.offset.toFloat()
+        val end = (item.offset + item.size).toFloat()
+        if (yPx < start) start - yPx else yPx - end
+    }?.index
+}
+
+/**
+ * Seek for an overlay Y: word-anchored fraction within the visible cue under
+ * that Y. Keep the result inside that cue's half-open range so reaching its
+ * lower pixel cannot flicker between this marker and the next timestamp.
+ */
+internal fun transcriptSeekForOverlayY(
+    cues: List<TranscriptCue>,
+    layoutInfo: LazyListLayoutInfo,
+    yPx: Float,
+): Long? {
+    if (cues.isEmpty()) return null
+    val cueIndex = transcriptOverlayItemAtY(layoutInfo, yPx) ?: return null
+    if (cueIndex !in cues.indices) return null
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == cueIndex }
+        ?: return cues[cueIndex].startMs
+    val size = item.size.toFloat()
+    if (size <= 0f) return cues[cueIndex].startMs
+    val fraction = ((yPx - item.offset.toFloat()) / size).coerceIn(0f, 1f)
+    val cue = cues[cueIndex]
+    val lastPosition = (cue.endMs - 1L).coerceAtLeast(cue.startMs)
+    return transcriptSeekForFraction(cue, fraction)
+        .coerceIn(cue.startMs, lastPosition)
 }
 
 private fun sanitizeDimension(value: Float): Float =

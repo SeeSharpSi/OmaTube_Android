@@ -61,8 +61,12 @@ persistence logic out of Compose.
 - `player/` owns Media3, stream selection, watch accounting and SponsorBlock;
   `ui/` is presentation only. Portrait playback keeps top and bottom chrome
   visible, renders the timed caption transcript directly below the top-pinned
-  video, and places bottom controls below the transcript. Caption fetching and
-  parsing remain in `backend/`. `ui/theme` holds the bundled palettes and fonts.
+  video, and places bottom controls below the transcript. A persistent gutter
+  owns transcript scrub input and its physical marker, independently of lazy
+  cue rows. Edge scrolling uses amplified pointer velocity and keeps the marker
+  inside the viewport; timestamp mapping must not reposition the held marker.
+  Caption fetching and parsing remain in `backend/`. `ui/theme` holds the
+  bundled palettes and fonts.
 
 ## Conventions
 

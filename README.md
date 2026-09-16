@@ -33,7 +33,11 @@ license locations.
   video stay pinned above a black scrolling transcript; the bottom controls sit
   below it with a small screen-edge gap. Transcript words seek when tapped, the
   red marker follows the spoken text line, and spoken words highlight when
-  captions are available. Top and bottom controls remain visible while the
+  captions are available. Dragging the timestamp gutter moves the red marker
+  at 1.75 times finger travel, including between timestamp rows. At an edge,
+  the marker stays just inside the transcript while the list scrolls at the
+  amplified drag speed. Holding maintains that speed; reversing moves the
+  marker inward. Releasing commits the seek. Top and bottom controls remain visible while the
   center transport hides on tap or after three seconds of playback. Loading
   stays visible without the landscape chrome, and the live scrub timestamp is
   centered above the bottom controls.
