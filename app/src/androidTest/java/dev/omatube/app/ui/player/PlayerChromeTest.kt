@@ -444,7 +444,7 @@ class PlayerChromeTest {
         }
         compose.onNodeWithTag("playerTranscriptCue_0").assertIsDisplayed()
 
-        // Adjacent walk: exercises the slow glide path.
+        // Adjacent walk: exercises fixed-speed catch-up.
         (1..10).forEach { i ->
             compose.runOnIdle {
                 playerState.value = playerState.value.copy(positionMs = i * 5_000L + 2_500L)
@@ -453,12 +453,19 @@ class PlayerChromeTest {
         }
         compose.onNodeWithTag("playerTranscriptCue_10").assertIsDisplayed()
 
-        // Far jump: exercises the snap path.
-        compose.runOnIdle {
-            playerState.value = playerState.value.copy(positionMs = 27 * 5_000L + 2_500L)
+        // Far jump: fixed-speed catch-up must expose target within one second
+        // of Compose test time, without relying on wall-clock waiting.
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnIdle {
+                playerState.value = playerState.value.copy(positionMs = 27 * 5_000L + 2_500L)
+            }
+            compose.mainClock.advanceTimeBy(1_000L)
+            compose.waitForIdle()
+            compose.onNodeWithTag("playerTranscriptCue_27").assertIsDisplayed()
+        } finally {
+            compose.mainClock.autoAdvance = true
         }
-        compose.waitForIdle()
-        compose.onNodeWithTag("playerTranscriptCue_27").assertIsDisplayed()
     }
 
     @Test
@@ -794,10 +801,10 @@ class PlayerChromeTest {
                 displacement,
                 frameTolerance,
             )
-            val followPxPerSec = with(density) { 70.dp.toPx() }
+            val followPxPerSec = with(density) { 10_000.dp.toPx() }
             val followDistance = followPxPerSec * 0.4f
             assertTrue(
-                "edge speed $displacement must not equal 70dp/sec follow $followDistance",
+                "edge speed $displacement must not equal 10000dp/sec follow $followDistance",
                 kotlin.math.abs(displacement - followDistance) > 4f,
             )
             // Second held interval with no moves keeps the same derived speed.
@@ -902,10 +909,10 @@ class PlayerChromeTest {
                 displacement,
                 frameTolerance,
             )
-            val followPxPerSec = with(density) { 70.dp.toPx() }
+            val followPxPerSec = with(density) { 10_000.dp.toPx() }
             val followDistance = followPxPerSec * 0.4f
             assertTrue(
-                "top edge speed $displacement must not equal 70dp/sec follow $followDistance",
+                "top edge speed $displacement must not equal 10000dp/sec follow $followDistance",
                 kotlin.math.abs(displacement - followDistance) > 4f,
             )
             gutter.performTouchInput { up() }

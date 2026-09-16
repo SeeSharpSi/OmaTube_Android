@@ -813,8 +813,9 @@ internal fun TranscriptPanel(
     val density = LocalDensity.current
     val markerHeightPx = with(density) { 1.dp.toPx() }
     val scrubEdgeMarginPx = with(density) { 2.dp.toPx() }
-    // Normal playback follow keeps its own fixed speed. Edge scrubbing uses
-    // the amplified finger velocity instead, so the two never share a rate.
+    // Normal playback follow rapidly catches up at a fixed speed. Edge
+    // scrubbing uses amplified finger velocity instead, so the two never
+    // share a rate.
     val transcriptFollowSpeedPxPerSec = with(density) { TRANSCRIPT_SCROLL_DP_PER_SECOND.dp.toPx() }
     // True while the persistent scrub overlay drag is in flight. Auto-follow
     // is disabled for the whole drag so the list never fights the finger.
@@ -1264,15 +1265,15 @@ private val MIN_TRANSCRIPT_HEIGHT = 180.dp
 private val DEFAULT_VIDEO_ASPECT = 16f / 9f
 private val TranscriptBackground = Color.Black
 private val PORTRAIT_BOTTOM_PADDING = 24.dp
-private const val TRANSCRIPT_SCROLL_DP_PER_SECOND = 70f
+private const val TRANSCRIPT_SCROLL_DP_PER_SECOND = 10_000f
 // Small forward window (ms) accepting the first playing tick just past an
 // exact synchronous seek target as acknowledgement. Paused seeks hold the
 // marker until playback actually moves.
 private const val COMMITTED_PREVIEW_FORWARD_WINDOW_MS = 350L
 
 /**
- * Move towards a cue at one physical speed. This walks until a distant target
- * becomes visible, then consumes only the exact remaining distance. Variable
+ * Rapidly catch up to target cue at a fixed physical speed. This walks until
+ * target becomes visible, then consumes only exact remaining distance. Variable
  * cue heights therefore cannot cause estimation jumps or edge acceleration.
  */
 private suspend fun constantSpeedTranscriptFollow(
